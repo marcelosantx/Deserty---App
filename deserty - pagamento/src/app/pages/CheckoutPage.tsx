@@ -1229,7 +1229,19 @@ export function CheckoutPage() {
   // ── On mount: check Stripe session_id callback first ──────────────────────
   useEffect(() => {
     if (sessionId) {
-      // Came back from Stripe after payment
+      // Restore checkout data saved before Stripe redirect
+      try {
+        const saved = sessionStorage.getItem('deserty_checkout_data');
+        if (saved) {
+          setData(JSON.parse(saved));
+          sessionStorage.removeItem('deserty_checkout_data');
+        }
+        const savedTournament = sessionStorage.getItem('deserty_checkout_tournament');
+        if (savedTournament) {
+          setTournament(JSON.parse(savedTournament));
+          sessionStorage.removeItem('deserty_checkout_tournament');
+        }
+      } catch { /* ignore */ }
       setStep('success');
       setLoadingInit(false);
       return;
@@ -1279,7 +1291,7 @@ export function CheckoutPage() {
       // ── 2. Fetch tournament ─────────────────────────────────────────────────
       const { data: t, error: tErr } = await supabase
         .from('tournaments')
-        .select('id, title, location, start_date, end_date, registration_fee, discount_percent, discount_min_categories')
+        .select('id, title, modality, location, start_date, end_date, registration_fee, discount_percent, discount_min_categories')
         .eq('id', tournamentId)
         .maybeSingle();
 
@@ -1305,37 +1317,16 @@ export function CheckoutPage() {
         discountMinCategories: t.discount_min_categories ?? 2,
       });
 
-      // ── 3. Fetch categories ─────────────────────────────────────────────────
-      const { data: cats, error: catsErr } = await supabase
-        .from('tournament_categories')
-        .select('id, name, modality')
-        .eq('tournament_id', tournamentId)
-        .order('name');
-      if (catsErr) console.error('[Checkout] categories error:', catsErr);
-
-      // Count confirmed registrations per category for spotsLeft
-      const catIds = (cats ?? []).map((c: any) => c.id);
-      const { data: regCounts } = catIds.length > 0
-        ? await supabase
-            .from('registrations')
-            .select('category_id')
-            .in('category_id', catIds)
-            .in('payment_status', ['paid', 'pending'])
-        : { data: [] };
-
-      const countMap: Record<string, number> = {};
-      (regCounts ?? []).forEach((r: any) => {
-        countMap[r.category_id] = (countMap[r.category_id] ?? 0) + 1;
-      });
-
-      const mapped: Category[] = (cats ?? []).map((c: any) => ({
-        id:              c.id,
-        name:            c.name,
-        gender:          c.modality ?? '',
+      // ── 3. Build category from tournament itself ────────────────────────────
+      // tournament_categories table doesn't exist; each tournament IS a category
+      const mapped: Category[] = [{
+        id:              t.id,
+        name:            t.title,
+        gender:          (t as any).modality ?? '',
         pricePerAthlete: t.registration_fee ?? 60,
-        spotsLeft:       Math.max(0, 32 - (countMap[c.id] ?? 0)),
+        spotsLeft:       32,
         total:           32,
-      }));
+      }];
       setCategories(mapped);
 
       // ── 4. Pre-select categories from URL param ─────────────────────────────
@@ -1429,7 +1420,9 @@ export function CheckoutPage() {
         return;
       }
 
-      // Redirect to Stripe Checkout
+      // Save state before Stripe redirect so success screen has data
+      sessionStorage.setItem('deserty_checkout_data', JSON.stringify(data));
+      sessionStorage.setItem('deserty_checkout_tournament', JSON.stringify(tournament));
       window.location.href = result.checkout_url;
     } catch (err: any) {
       setPayError(err.message ?? 'Erro de conexão. Tente novamente.');
