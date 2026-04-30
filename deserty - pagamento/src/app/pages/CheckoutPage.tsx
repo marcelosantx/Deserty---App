@@ -1264,7 +1264,7 @@ export function CheckoutPage() {
       // ── 2. Fetch tournament ─────────────────────────────────────────────────
       const { data: t, error: tErr } = await supabase
         .from('tournaments')
-        .select('id, title, cover_image_url, location, start_date, end_date, registration_fee, discount_percent, discount_min_categories')
+        .select('id, title, location, start_date, end_date, registration_fee, discount_percent, discount_min_categories')
         .eq('id', tournamentId)
         .maybeSingle();
 
@@ -1280,7 +1280,7 @@ export function CheckoutPage() {
       setTournament({
         id:                    t.id,
         name:                  t.title,
-        coverUrl:              t.cover_image_url ?? eventCover,
+        coverUrl:              eventCover,
         location:              t.location ?? null,
         dateLabel:             t.start_date
           ? new Date(t.start_date).toLocaleDateString('pt-BR', { day:'2-digit', month:'short', year:'numeric' })
