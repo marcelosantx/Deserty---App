@@ -1246,7 +1246,19 @@ export function CheckoutPage() {
     }
 
     try {
-      // ── 1. Restore Supabase session (handles tokens from URL hash) ──────────
+      // ── 1. Restore Supabase session ──────────────────────────────────────────
+      // Try cross-subdomain session via URL tokens passed from main app
+      const accessToken  = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
+      if (accessToken && refreshToken) {
+        await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+        // Remove tokens from URL to avoid leaking in history
+        const clean = new URL(window.location.href);
+        clean.searchParams.delete('access_token');
+        clean.searchParams.delete('refresh_token');
+        window.history.replaceState({}, '', clean.toString());
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const { data: profile } = await supabase
