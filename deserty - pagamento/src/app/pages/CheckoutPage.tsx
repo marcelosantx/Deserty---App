@@ -1247,13 +1247,14 @@ export function CheckoutPage() {
 
     try {
       // ── 1. Restore Supabase session ──────────────────────────────────────────
-      // Try cross-subdomain session via URL tokens passed from main app
       const accessToken  = params.get('access_token');
       const refreshToken = params.get('refresh_token');
+      console.log('[Checkout] tokens from URL:', { hasAccess: !!accessToken, hasRefresh: !!refreshToken });
+
       if (accessToken && refreshToken) {
         const { error: sessErr } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-        if (sessErr) console.error('[Checkout] setSession error:', sessErr);
-        // Remove tokens from URL to avoid leaking in history
+        console.log('[Checkout] setSession result:', { sessErr });
+        // Remove tokens from URL
         const clean = new URL(window.location.href);
         clean.searchParams.delete('access_token');
         clean.searchParams.delete('refresh_token');
@@ -1261,6 +1262,7 @@ export function CheckoutPage() {
       }
 
       const { data: { session } } = await supabase.auth.getSession();
+      console.log('[Checkout] session after restore:', { hasSession: !!session, userId: session?.user?.id });
       if (session?.user) {
         const { data: profile } = await supabase
           .from('profiles')
