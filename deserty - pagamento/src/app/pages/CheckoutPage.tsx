@@ -1264,17 +1264,18 @@ export function CheckoutPage() {
       // ── 2. Fetch tournament ─────────────────────────────────────────────────
       const { data: t, error: tErr } = await supabase
         .from('tournaments')
-        .select('id, title, cover_image_url, location, start_date, end_date, registration_fee, discount_percent, discount_min_categories, events(cover_url)')
+        .select('id, title, cover_image_url, location, start_date, end_date, registration_fee, discount_percent, discount_min_categories')
         .eq('id', tournamentId)
         .maybeSingle();
 
       if (tErr || !t) {
+        console.error('[Checkout] tournament fetch error:', tErr, 'tid:', tournamentId);
         setInitError('Torneio não encontrado.');
         setLoadingInit(false);
         return;
       }
 
-      const eventCover = (t as any).events?.cover_url ?? null;
+      const eventCover = null;
 
       setTournament({
         id:                    t.id,
