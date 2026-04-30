@@ -1404,11 +1404,16 @@ export function CheckoutPage() {
         cancel_url:  returnUrl,
       };
 
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
       const res = await fetch(
         `${supabaseUrl}/functions/v1/server/make-server-06b83993/stripe/create-checkout`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${anonKey}`,
+            'apikey': anonKey,
+          },
           body: JSON.stringify(body),
         },
       );
