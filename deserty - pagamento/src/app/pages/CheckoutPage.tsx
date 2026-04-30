@@ -1306,11 +1306,12 @@ export function CheckoutPage() {
       });
 
       // ── 3. Fetch categories ─────────────────────────────────────────────────
-      const { data: cats } = await supabase
+      const { data: cats, error: catsErr } = await supabase
         .from('tournament_categories')
-        .select('id, name, modality, max_participants')
+        .select('id, name, modality')
         .eq('tournament_id', tournamentId)
         .order('name');
+      if (catsErr) console.error('[Checkout] categories error:', catsErr);
 
       // Count confirmed registrations per category for spotsLeft
       const catIds = (cats ?? []).map((c: any) => c.id);
@@ -1332,8 +1333,8 @@ export function CheckoutPage() {
         name:            c.name,
         gender:          c.modality ?? '',
         pricePerAthlete: t.registration_fee ?? 60,
-        spotsLeft:       Math.max(0, (c.max_participants ?? 32) - (countMap[c.id] ?? 0)),
-        total:           c.max_participants ?? 32,
+        spotsLeft:       Math.max(0, 32 - (countMap[c.id] ?? 0)),
+        total:           32,
       }));
       setCategories(mapped);
 
