@@ -1251,7 +1251,8 @@ export function CheckoutPage() {
       const accessToken  = params.get('access_token');
       const refreshToken = params.get('refresh_token');
       if (accessToken && refreshToken) {
-        await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+        const { error: sessErr } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+        if (sessErr) console.error('[Checkout] setSession error:', sessErr);
         // Remove tokens from URL to avoid leaking in history
         const clean = new URL(window.location.href);
         clean.searchParams.delete('access_token');
