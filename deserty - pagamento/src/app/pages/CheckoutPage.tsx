@@ -1363,8 +1363,8 @@ export function CheckoutPage() {
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      const checkoutUrl = import.meta.env.VITE_CHECKOUT_URL as string;
-      const appUrl      = import.meta.env.VITE_APP_URL as string;
+      const checkoutUrl = (import.meta.env.VITE_CHECKOUT_URL as string) || window.location.origin;
+      const appUrl      = (import.meta.env.VITE_APP_URL as string) || returnUrl || window.location.origin;
 
       // Build duo_partner list from the first category that has a partner
       // (for multi-category split, all partners are included in registration ids)
