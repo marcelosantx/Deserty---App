@@ -1051,14 +1051,17 @@ function PaymentMethodStep({ data, onUpdate, onNext, onBack, discountRate, onPay
           subtitle={`Total a pagar: ${fmt(pricing.userBaseTotal)}`}/>
         <div className="flex flex-col gap-3">
           {([
-            { id:'pix' as const,         icon:<Smartphone size={20}/>, title:'Pix',               sub:'Aprovação imediata · QR Code gerado pelo Stripe' },
-            { id:'credit_card' as const, icon:<CreditCard size={20}/>, title:'Cartão de Crédito',  sub:'Visa, Mastercard, Elo e outras bandeiras' },
+            { id:'credit_card' as const, icon:<CreditCard size={20}/>, title:'Cartão de Crédito', sub:'Visa, Mastercard, Elo e outras bandeiras', disabled: false },
+            { id:'pix' as const,         icon:<Smartphone size={20}/>, title:'Pix',                sub:'Em breve', disabled: true },
           ] as const).map(m => {
             const sel = data.paymentMethod === m.id;
             return (
-              <button key={m.id} onClick={() => onUpdate({ paymentMethod: m.id })}
+              <button key={m.id} onClick={() => !m.disabled && onUpdate({ paymentMethod: m.id })}
+                disabled={m.disabled}
                 className={`w-full text-left p-4 rounded-[12px] border transition-all flex items-center gap-4
-                  ${sel?'border-[#3ECF8E] bg-[#3ECF8E]/10 ring-1 ring-[#3ECF8E]/20':'border-[#2a2a2a] bg-[#171717] hover:border-[#4a4a4a]'}`}>
+                  ${m.disabled ? 'opacity-40 cursor-not-allowed border-[#2a2a2a] bg-[#171717]'
+                    : sel ? 'border-[#3ECF8E] bg-[#3ECF8E]/10 ring-1 ring-[#3ECF8E]/20'
+                           : 'border-[#2a2a2a] bg-[#171717] hover:border-[#4a4a4a]'}`}>
                 <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 transition-all
                   ${sel?'bg-[#3ECF8E] text-[#121212]':'bg-[#252525] text-[#8e8e8e]'}`}>{m.icon}</div>
                 <div className="flex-1 min-w-0">
