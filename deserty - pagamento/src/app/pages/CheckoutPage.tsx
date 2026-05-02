@@ -418,9 +418,12 @@ function AuthStep({ onUpdate, onNext, onPartnerLogin }: {
   };
 
   const handleGoogle = async () => {
+    // Save full URL (with partner params) — Supabase can't validate URLs with query strings
+    // against the allowlist, so we redirect to the base URL and restore params after OAuth
+    sessionStorage.setItem('deserty_oauth_return', window.location.href);
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.href },
+      options: { redirectTo: window.location.origin + '/' },
     });
   };
 
@@ -1603,6 +1606,18 @@ export function CheckoutPage() {
 
       const { data: { session } } = await supabase.auth.getSession();
       console.log('[Checkout] session after restore:', { hasSession: !!session, userId: session?.user?.id });
+
+      // After Google OAuth, Supabase redirects to the base URL (losing partner params).
+      // Restore the original URL from sessionStorage so params like tid/regId/partnerFlow are present.
+      if (session?.user && !tournamentId) {
+        const savedUrl = sessionStorage.getItem('deserty_oauth_return');
+        if (savedUrl) {
+          sessionStorage.removeItem('deserty_oauth_return');
+          window.location.replace(savedUrl);
+          return;
+        }
+      }
+
       if (session?.user) {
         const { data: profile } = await supabase
           .from('profiles')
