@@ -13,7 +13,7 @@ import imgSynergy   from 'figma:asset/c1bbbe3578f99a2cce1355514a603fdcb1c8dc52.p
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type CheckoutStep =
-  | 'auth' | 'categories' | 'partners'
+  | 'auth' | 'categories' | 'uniform' | 'partners'
   | 'review' | 'billing' | 'payment-method' | 'payment-details' | 'success';
 
 interface TournamentMeta {
@@ -22,9 +22,10 @@ interface TournamentMeta {
   coverUrl: string | null;
   location: string | null;
   dateLabel: string;
-  registrationFee: number;      // BRL (e.g. 60 = R$60)
-  discountPercent: number;       // e.g. 50
-  discountMinCategories: number; // e.g. 2
+  registrationFee: number;
+  discountPercent: number;
+  discountMinCategories: number;
+  includeUniform: boolean;
 }
 
 interface Category {
@@ -57,25 +58,27 @@ interface CheckoutData {
   couponDiscount: number;
   payOptions: Record<string, 'full' | 'mine'>;
   paymentMethod: 'pix' | 'credit_card' | null;
+  uniformSize: string | null;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const STEP_ORDER: CheckoutStep[] = [
-  'auth', 'categories', 'partners', 'review', 'billing',
+  'auth', 'categories', 'uniform', 'partners', 'review', 'billing',
   'payment-method', 'payment-details', 'success',
 ];
 const VISIBLE_STEPS: CheckoutStep[] = [
-  'auth', 'categories', 'partners', 'review', 'billing', 'payment-method',
+  'auth', 'categories', 'uniform', 'partners', 'review', 'billing', 'payment-method',
 ];
 const STEP_LABELS: Partial<Record<CheckoutStep, string>> = {
-  auth: 'Acesso', categories: 'Categorias', partners: 'Dupla',
+  auth: 'Acesso', categories: 'Categorias', uniform: 'Uniforme', partners: 'Dupla',
   review: 'Revisão', billing: 'Faturamento', 'payment-method': 'Pagamento',
 };
+const UNIFORM_SIZES = ['PP', 'P', 'M', 'G', 'GG', 'XGG'];
 const INITIAL_DATA: CheckoutData = {
   user: null, selectedCategories: [], partners: {},
   billing: { name: '', cpf: '', email: '', whatsapp: '' },
   couponCode: '', couponStatus: 'idle', couponDiscount: 0,
-  payOptions: {}, paymentMethod: null,
+  payOptions: {}, paymentMethod: null, uniformSize: null,
 };
 const SERVICE_FEE_RATE = 0.03;
 
@@ -208,14 +211,14 @@ function Nav({ onBack, onNext, nextLabel='Continuar', nextDisabled=false, loadin
   );
 }
 
-function InfoBox({ children, color='blue' }: { children: React.ReactNode; color?: 'blue'|'green'|'amber' }) {
+function InfoBox({ children, color='blue', className='' }: { children: React.ReactNode; color?: 'blue'|'green'|'amber'; className?: string }) {
   const c = {
     blue:  'bg-blue-500/10 border-blue-500/20 text-blue-300',
     green: 'bg-[#3ECF8E]/10 border-[#3ECF8E]/20 text-[#3ECF8E]',
     amber: 'bg-amber-500/10 border-amber-500/20 text-amber-300',
   };
   return (
-    <div className={`flex gap-2.5 p-3 rounded-[10px] border text-[12px] leading-relaxed ${c[color]}`}>
+    <div className={`flex gap-2.5 p-3 rounded-[10px] border text-[12px] leading-relaxed ${c[color]} ${className}`}>
       <Info size={14} className="shrink-0 mt-0.5"/>
       <div>{children}</div>
     </div>
@@ -249,13 +252,14 @@ function EventBanner({ tournament }: { tournament: TournamentMeta | null }) {
 }
 
 // ─── Step Indicator ───────────────────────────────────────────────────────────
-function StepIndicator({ current }: { current: CheckoutStep }) {
-  const ci = VISIBLE_STEPS.indexOf(
+function StepIndicator({ current, includeUniform }: { current: CheckoutStep; includeUniform?: boolean }) {
+  const visibleSteps = VISIBLE_STEPS.filter(s => s !== 'uniform' || includeUniform);
+  const ci = visibleSteps.indexOf(
     current === 'payment-details' ? 'payment-method' : current,
   );
   return (
     <div className="flex items-center justify-center gap-1 py-4 max-w-3xl mx-auto w-full px-4">
-      {VISIBLE_STEPS.map((s, i) => {
+      {visibleSteps.map((s, i) => {
         const done = i < ci, active = i === ci;
         return (
           <React.Fragment key={s}>
@@ -271,7 +275,7 @@ function StepIndicator({ current }: { current: CheckoutStep }) {
               <span className={`text-[9px] uppercase tracking-wider hidden sm:block
                 ${active?'text-white':done?'text-[#3ECF8E]':'text-[#3a3a3a]'}`}>{STEP_LABELS[s]}</span>
             </div>
-            {i < VISIBLE_STEPS.length-1 && (
+            {i < visibleSteps.length-1 && (
               <div className={`flex-1 h-px mb-4 transition-all ${i<ci?'bg-[#3ECF8E]':'bg-[#2a2a2a]'}`}/>
             )}
           </React.Fragment>
@@ -509,7 +513,44 @@ function CategoryStep({ data, onUpdate, onNext, onBack, categories, discountRate
   );
 }
 
-// ─── STEP 3: Partners ─────────────────────────────────────────────────────────
+// ─── STEP 3: Uniform ──────────────────────────────────────────────────────────
+function UniformStep({ data, onUpdate, onNext, onBack }: {
+  data: CheckoutData; onUpdate: (u: Partial<CheckoutData>) => void;
+  onNext: () => void; onBack: () => void;
+}) {
+  return (
+    <>
+      <Card>
+        <StepHeading title="Tamanho do uniforme" subtitle="Escolha o tamanho da sua camiseta"/>
+        <div className="grid grid-cols-3 gap-3">
+          {UNIFORM_SIZES.map(size => {
+            const sel = data.uniformSize === size;
+            return (
+              <button key={size} onClick={() => onUpdate({ uniformSize: size })}
+                className={`h-14 rounded-[12px] border font-semibold text-[15px] transition-all
+                  ${sel
+                    ? 'border-[#3ECF8E] bg-[#3ECF8E]/10 text-[#3ECF8E] ring-1 ring-[#3ECF8E]/20'
+                    : 'border-[#2a2a2a] bg-[#171717] text-[#8e8e8e] hover:border-[#4a4a4a] hover:text-white'}`}>
+                {size}
+              </button>
+            );
+          })}
+        </div>
+        <InfoBox color="green" className="mt-5">
+          O uniforme será entregue presencialmente no dia do evento.
+        </InfoBox>
+      </Card>
+      <div className="flex items-center justify-between mt-5">
+        <Btn variant="ghost" onClick={onBack}><ArrowLeft size={16}/>Voltar</Btn>
+        <Btn onClick={onNext} disabled={!data.uniformSize}>
+          Próximo<ChevronRight size={16}/>
+        </Btn>
+      </div>
+    </>
+  );
+}
+
+// ─── STEP 4: Partners ─────────────────────────────────────────────────────────
 function PartnerSearch({ category, catIdx, partner, onSelect, userName, discountRate }: {
   category: Category; catIdx: number; partner: Partner | null;
   onSelect: (p: Partner | null) => void; userName: string; discountRate: number;
@@ -1334,7 +1375,7 @@ export function CheckoutPage() {
       // ── 2. Fetch tournament + event cover ──────────────────────────────────
       const { data: t, error: tErr } = await supabase
         .from('tournaments')
-        .select('id, title, modality, location, start_date, end_date, registration_fee, discount_percent, discount_min_categories, event_id, events(cover_url)')
+        .select('id, title, modality, location, start_date, end_date, registration_fee, discount_percent, discount_min_categories, include_uniform, event_id, events(cover_url)')
         .eq('id', tournamentId)
         .maybeSingle();
 
@@ -1358,6 +1399,7 @@ export function CheckoutPage() {
         registrationFee:       t.registration_fee ?? 60,
         discountPercent:       t.discount_percent ?? 0,
         discountMinCategories: t.discount_min_categories ?? 2,
+        includeUniform:        (t as any).include_uniform ?? false,
       });
 
       // ── 3. Build category from tournament itself ────────────────────────────
@@ -1388,13 +1430,23 @@ export function CheckoutPage() {
 
   // ── Navigation ─────────────────────────────────────────────────────────────
   const goNext = () => {
-    const i = STEP_ORDER.indexOf(step);
-    if (i < STEP_ORDER.length - 1) setStep(STEP_ORDER[i + 1]);
+    let i = STEP_ORDER.indexOf(step) + 1;
+    while (i < STEP_ORDER.length) {
+      const next = STEP_ORDER[i];
+      if (next === 'uniform' && !tournament?.includeUniform) { i++; continue; }
+      setStep(next);
+      return;
+    }
   };
   const goBack = () => {
-    const i = STEP_ORDER.indexOf(step);
-    if (i > 0) setStep(STEP_ORDER[i - 1]);
-    else window.location.href = returnUrl;
+    let i = STEP_ORDER.indexOf(step) - 1;
+    while (i >= 0) {
+      const prev = STEP_ORDER[i];
+      if (prev === 'uniform' && !tournament?.includeUniform) { i--; continue; }
+      setStep(prev);
+      return;
+    }
+    window.location.href = returnUrl;
   };
 
   // ── Call Edge Function → redirect to Stripe ────────────────────────────────
@@ -1443,6 +1495,7 @@ export function CheckoutPage() {
           payer_covers_duo: true,
         } : {}),
         payment_method_hint: data.paymentMethod,
+        uniform_size: data.uniformSize ?? undefined,
         success_url: `${checkoutUrl || appUrl}/checkout?tid=${tournament.id}&return=${encodeURIComponent(returnUrl)}`,
         cancel_url:  returnUrl,
       };
@@ -1525,7 +1578,7 @@ export function CheckoutPage() {
         </div>
         {step !== 'success' && step !== 'payment-details' && (
           <div className="bg-[#121212]/95 backdrop-blur-sm border-b border-[#1a1a1a]">
-            <StepIndicator current={step}/>
+            <StepIndicator current={step} includeUniform={tournament?.includeUniform}/>
           </div>
         )}
       </div>
@@ -1536,6 +1589,9 @@ export function CheckoutPage() {
           {step === 'auth'           && <AuthStep onUpdate={update} onNext={goNext}/>}
           {step === 'categories'     && (
             <CategoryStep {...stepProps} categories={categories} discountRate={discountRate}/>
+          )}
+          {step === 'uniform'        && (
+            <UniformStep data={data} onUpdate={update} onNext={goNext} onBack={goBack}/>
           )}
           {step === 'partners'       && (
             <PartnerStep {...stepProps} discountRate={discountRate}/>
