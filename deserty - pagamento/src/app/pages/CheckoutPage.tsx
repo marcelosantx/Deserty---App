@@ -418,12 +418,12 @@ function AuthStep({ onUpdate, onNext, onPartnerLogin }: {
   };
 
   const handleGoogle = async () => {
-    // Supabase OAuth (implicit flow) drops query params on redirect.
-    // Save the full URL now so we can restore it after OAuth completes.
+    // Save full URL (with partner params) before OAuth — Supabase drops query params on redirect.
+    // The dedicated /oauth-callback route restores it after session is established.
     localStorage.setItem('deserty_oauth_return', window.location.href);
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin + '/' },
+      options: { redirectTo: `${window.location.origin}/oauth-callback` },
     });
   };
 
@@ -1599,17 +1599,6 @@ export function CheckoutPage() {
 
   const initCheckout = async () => {
     if (!tournamentId) {
-      // After Google OAuth, Supabase redirects to the base URL without partner query params.
-      // Check if we have a saved URL in localStorage and the session is now established.
-      const savedUrl = localStorage.getItem('deserty_oauth_return');
-      if (savedUrl) {
-        const { data: { session: earlySession } } = await supabase.auth.getSession();
-        if (earlySession?.user) {
-          localStorage.removeItem('deserty_oauth_return');
-          window.location.replace(savedUrl);
-          return;
-        }
-      }
       setInitError('Torneio não identificado. Volte ao evento e tente novamente.');
       setLoadingInit(false);
       return;
