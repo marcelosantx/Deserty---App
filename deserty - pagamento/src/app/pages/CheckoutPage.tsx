@@ -1331,10 +1331,10 @@ export function CheckoutPage() {
         setStep('categories'); // skip auth
       }
 
-      // ── 2. Fetch tournament ─────────────────────────────────────────────────
+      // ── 2. Fetch tournament + event cover ──────────────────────────────────
       const { data: t, error: tErr } = await supabase
         .from('tournaments')
-        .select('id, title, modality, location, start_date, end_date, registration_fee, discount_percent, discount_min_categories')
+        .select('id, title, modality, location, start_date, end_date, registration_fee, discount_percent, discount_min_categories, event_id, events(cover_url)')
         .eq('id', tournamentId)
         .maybeSingle();
 
@@ -1345,7 +1345,7 @@ export function CheckoutPage() {
         return;
       }
 
-      const eventCover = null;
+      const eventCover = (t as any).events?.cover_url ?? null;
 
       setTournament({
         id:                    t.id,
