@@ -286,12 +286,9 @@ function StepIndicator({ current, includeUniform }: { current: CheckoutStep; inc
 }
 
 // ─── STEP 1: Auth ─────────────────────────────────────────────────────────────
-function AuthStep({ onUpdate, onNext, isPartnerFlow, tournamentId, onSkipToBilling }: {
+function AuthStep({ onUpdate, onNext }: {
   onUpdate: (u: Partial<CheckoutData>) => void;
   onNext: () => void;
-  isPartnerFlow?: boolean;
-  tournamentId?: string;
-  onSkipToBilling?: () => void;
 }) {
   const [mode, setMode]         = useState<'login'|'register'>('login');
   const [email, setEmail]       = useState('');
@@ -326,18 +323,6 @@ function AuthStep({ onUpdate, onNext, isPartnerFlow, tournamentId, onSkipToBilli
           ? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username
           : email.split('@')[0];
         onUpdate({ user: { id: user.id, name: displayName, email: user.email! } });
-
-        if (isPartnerFlow && tournamentId && onSkipToBilling) {
-          const { data: pendingReg } = await supabase
-            .from('registrations')
-            .select('id')
-            .eq('tournament_id', tournamentId)
-            .eq('player_id', user.id)
-            .eq('payment_status', 'pending')
-            .maybeSingle();
-          if (pendingReg) { onSkipToBilling(); return; }
-        }
-
         onNext();
       } else {
         const { data, error } = await supabase.auth.signUp({ email, password });
@@ -1443,23 +1428,6 @@ export function CheckoutPage() {
           ? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username
           : session.user.email?.split('@')[0] ?? 'Atleta';
         update({ user: { id: session.user.id, name: displayName, email: session.user.email! } });
-
-        // Partner flow: skip straight to billing if pending registration exists
-        // (categories are set after tournament fetch below, so we store a flag)
-        if (isPartnerFlow && tournamentId) {
-          const { data: pendingReg } = await supabase
-            .from('registrations')
-            .select('id')
-            .eq('tournament_id', tournamentId)
-            .eq('player_id', session.user.id)
-            .eq('payment_status', 'pending')
-            .maybeSingle();
-          if (pendingReg) {
-            // Will skip to billing after categories are loaded (handled below)
-            (window as any).__partnerSkipToBilling = true;
-          }
-        }
-
         setStep('categories'); // skip auth
       }
 
@@ -1521,15 +1489,7 @@ export function CheckoutPage() {
       if (preCats) {
         const preIds = preCats.split(',');
         const preSel = mapped.filter(c => preIds.includes(c.id));
-        if (preSel.length > 0) {
-          update({ selectedCategories: preSel });
-          if ((window as any).__partnerSkipToBilling) {
-            delete (window as any).__partnerSkipToBilling;
-            setStep('billing');
-            setLoadingInit(false);
-            return;
-          }
-        }
+        if (preSel.length > 0) update({ selectedCategories: preSel });
       }
     } catch (err: any) {
       setInitError(err.message ?? 'Erro ao carregar torneio.');
@@ -1544,6 +1504,7 @@ export function CheckoutPage() {
     while (i < STEP_ORDER.length) {
       const next = STEP_ORDER[i];
       if (next === 'uniform' && !tournament?.includeUniform) { i++; continue; }
+      if (next === 'partners' && isPartnerFlow) { i++; continue; }
       setStep(next);
       return;
     }
@@ -1697,7 +1658,7 @@ export function CheckoutPage() {
       {/* Content */}
       <div className={`flex-1 ${step==='success'||step==='payment-details'?'flex flex-col':''}`}>
         <div className={step==='success'||step==='payment-details' ? 'flex-1 flex flex-col' : 'max-w-2xl mx-auto px-4 py-6 pb-12 w-full'}>
-          {step === 'auth'           && <AuthStep onUpdate={update} onNext={goNext} isPartnerFlow={isPartnerFlow} tournamentId={tournamentId} onSkipToBilling={() => setStep('billing')}/>}
+          {step === 'auth'           && <AuthStep onUpdate={update} onNext={goNext}/>}
           {step === 'categories'     && (
             <CategoryStep {...stepProps} categories={categories} discountRate={discountRate}/>
           )}
