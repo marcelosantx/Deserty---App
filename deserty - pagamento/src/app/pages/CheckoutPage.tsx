@@ -58,19 +58,19 @@ interface CheckoutData {
   couponDiscount: number;
   payOptions: Record<string, 'full' | 'mine'>;
   paymentMethod: 'pix' | 'credit_card' | null;
-  uniformSize: string | null;
+  uniformSizes: { payer: string | null; partner: string | null };
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const STEP_ORDER: CheckoutStep[] = [
-  'auth', 'categories', 'uniform', 'partners', 'review', 'billing',
+  'auth', 'categories', 'partners', 'uniform', 'review', 'billing',
   'payment-method', 'payment-details', 'success',
 ];
 const VISIBLE_STEPS: CheckoutStep[] = [
-  'auth', 'categories', 'uniform', 'partners', 'review', 'billing', 'payment-method',
+  'auth', 'categories', 'partners', 'uniform', 'review', 'billing', 'payment-method',
 ];
 const STEP_LABELS: Partial<Record<CheckoutStep, string>> = {
-  auth: 'Acesso', categories: 'Categorias', uniform: 'Uniforme', partners: 'Dupla',
+  auth: 'Acesso', categories: 'Categorias', partners: 'Dupla', uniform: 'Uniforme',
   review: 'Revisão', billing: 'Faturamento', 'payment-method': 'Pagamento',
 };
 const UNIFORM_SIZES = ['PP', 'P', 'M', 'G', 'GG', 'XGG'];
@@ -78,7 +78,7 @@ const INITIAL_DATA: CheckoutData = {
   user: null, selectedCategories: [], partners: {},
   billing: { name: '', cpf: '', email: '', whatsapp: '' },
   couponCode: '', couponStatus: 'idle', couponDiscount: 0,
-  payOptions: {}, paymentMethod: null, uniformSize: null,
+  payOptions: {}, paymentMethod: null, uniformSizes: { payer: null, partner: null },
 };
 const SERVICE_FEE_RATE = 0.03;
 
@@ -518,31 +518,71 @@ function UniformStep({ data, onUpdate, onNext, onBack }: {
   data: CheckoutData; onUpdate: (u: Partial<CheckoutData>) => void;
   onNext: () => void; onBack: () => void;
 }) {
+  // Detect if any category has a partner with split payment
+  const partnerEntry = Object.entries(data.partners).find(([catId, p]) =>
+    p != null && (data.payOptions[catId] === 'mine' || data.payOptions[catId] == null)
+  );
+  const partner = partnerEntry?.[1] ?? null;
+
+  const payerDone   = !!data.uniformSizes.payer;
+  const partnerDone = !partner || !!data.uniformSizes.partner;
+  const canProceed  = payerDone && partnerDone;
+
+  const SizeGrid = ({
+    selected, onSelect,
+  }: { selected: string | null; onSelect: (s: string) => void }) => (
+    <div className="grid grid-cols-3 gap-3">
+      {UNIFORM_SIZES.map(size => {
+        const sel = selected === size;
+        return (
+          <button key={size} onClick={() => onSelect(size)}
+            className={`h-14 rounded-[12px] border font-semibold text-[15px] transition-all
+              ${sel
+                ? 'border-[#3ECF8E] bg-[#3ECF8E]/10 text-[#3ECF8E] ring-1 ring-[#3ECF8E]/20'
+                : 'border-[#2a2a2a] bg-[#171717] text-[#8e8e8e] hover:border-[#4a4a4a] hover:text-white'}`}>
+            {size}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
     <>
       <Card>
-        <StepHeading title="Tamanho do uniforme" subtitle="Escolha o tamanho da sua camiseta"/>
-        <div className="grid grid-cols-3 gap-3">
-          {UNIFORM_SIZES.map(size => {
-            const sel = data.uniformSize === size;
-            return (
-              <button key={size} onClick={() => onUpdate({ uniformSize: size })}
-                className={`h-14 rounded-[12px] border font-semibold text-[15px] transition-all
-                  ${sel
-                    ? 'border-[#3ECF8E] bg-[#3ECF8E]/10 text-[#3ECF8E] ring-1 ring-[#3ECF8E]/20'
-                    : 'border-[#2a2a2a] bg-[#171717] text-[#8e8e8e] hover:border-[#4a4a4a] hover:text-white'}`}>
-                {size}
-              </button>
-            );
-          })}
+        <StepHeading title="Tamanhos do uniforme" subtitle="Cada atleta escolhe o seu tamanho"/>
+
+        {/* Payer */}
+        <div className="mb-6">
+          <p className="text-[13px] text-[#8e8e8e] mb-3 font-medium">
+            Seu tamanho
+          </p>
+          <SizeGrid
+            selected={data.uniformSizes.payer}
+            onSelect={s => onUpdate({ uniformSizes: { ...data.uniformSizes, payer: s } })}
+          />
         </div>
+
+        {/* Partner (only if split-payment duo) */}
+        {partner && (
+          <div className="border-t border-[#2a2a2a] pt-6">
+            <p className="text-[13px] text-[#8e8e8e] mb-3 font-medium">
+              Tamanho de <span className="text-white">{partner.name}</span>
+            </p>
+            <SizeGrid
+              selected={data.uniformSizes.partner}
+              onSelect={s => onUpdate({ uniformSizes: { ...data.uniformSizes, partner: s } })}
+            />
+          </div>
+        )}
+
         <InfoBox color="green" className="mt-5">
           O uniforme será entregue presencialmente no dia do evento.
         </InfoBox>
       </Card>
       <div className="flex items-center justify-between mt-5">
         <Btn variant="ghost" onClick={onBack}><ArrowLeft size={16}/>Voltar</Btn>
-        <Btn onClick={onNext} disabled={!data.uniformSize}>
+        <Btn onClick={onNext} disabled={!canProceed}>
           Próximo<ChevronRight size={16}/>
         </Btn>
       </div>
@@ -1523,7 +1563,8 @@ export function CheckoutPage() {
           payer_covers_duo: true,
         } : {}),
         payment_method_hint: data.paymentMethod,
-        uniform_size: data.uniformSize ?? undefined,
+        uniform_size: data.uniformSizes.payer ?? undefined,
+        partner_uniform_size: data.uniformSizes.partner ?? undefined,
         success_url: `${checkoutUrl || appUrl}/checkout?tid=${tournament.id}&return=${encodeURIComponent(returnUrl)}`,
         cancel_url:  returnUrl,
       };
