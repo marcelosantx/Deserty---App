@@ -423,7 +423,7 @@ function AuthStep({ onUpdate, onNext, onPartnerLogin }: {
     localStorage.setItem('deserty_oauth_return', window.location.href);
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/oauth-callback` },
+      options: { redirectTo: window.location.origin + '/' },
     });
   };
 
@@ -1599,6 +1599,18 @@ export function CheckoutPage() {
 
   const initCheckout = async () => {
     if (!tournamentId) {
+      // Supabase OAuth (implicit flow) drops query params and redirects to the root URL.
+      // The SDK processes the hash tokens synchronously on load, so session is available here.
+      // Restore the original partner URL from localStorage if present.
+      const savedUrl = localStorage.getItem('deserty_oauth_return');
+      if (savedUrl) {
+        const { data: { session: s } } = await supabase.auth.getSession();
+        if (s?.user) {
+          localStorage.removeItem('deserty_oauth_return');
+          window.location.replace(savedUrl);
+          return;
+        }
+      }
       setInitError('Torneio não identificado. Volte ao evento e tente novamente.');
       setLoadingInit(false);
       return;

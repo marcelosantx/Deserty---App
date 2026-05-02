@@ -4,14 +4,12 @@ import { supabase } from '@/lib/supabase';
 
 export function OAuthCallbackPage() {
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Wait for Supabase to process OAuth tokens, then restore the saved partner URL.
+    // We always redirect to savedUrl if present — the CheckoutPage handles session detection.
+    supabase.auth.getSession().then(() => {
       const savedUrl = localStorage.getItem('deserty_oauth_return');
-      if (savedUrl) {
-        localStorage.removeItem('deserty_oauth_return');
-        window.location.replace(session?.user ? savedUrl : '/');
-      } else {
-        window.location.replace('/');
-      }
+      localStorage.removeItem('deserty_oauth_return');
+      window.location.replace(savedUrl ?? '/');
     });
   }, []);
 
