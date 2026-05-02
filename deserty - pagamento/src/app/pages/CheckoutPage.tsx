@@ -1095,8 +1095,8 @@ function PaymentMethodStep({ data, onUpdate, onNext, onBack, discountRate, onPay
   );
 }
 
-// ─── STEP 7: Payment Details (redirect loading) ───────────────────────────────
-function PaymentDetailsStep({ error }: { error: string | null }) {
+// ─── STEP 7: Payment Details (redirect loading / payment processing) ─────────
+function PaymentDetailsStep({ error, confirming = false }: { error: string | null; confirming?: boolean }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 gap-6">
       {error ? (
@@ -1109,6 +1109,16 @@ function PaymentDetailsStep({ error }: { error: string | null }) {
             <p className="text-[#8e8e8e] text-[14px] max-w-sm">{error}</p>
           </div>
           <Btn onClick={() => window.location.reload()}>Tentar novamente</Btn>
+        </>
+      ) : confirming ? (
+        <>
+          <div className="w-16 h-16 bg-[#3ECF8E]/10 rounded-full flex items-center justify-center">
+            <Loader2 size={32} className="text-[#3ECF8E] animate-spin"/>
+          </div>
+          <div className="text-center">
+            <h2 className="text-white text-[20px] font-semibold mb-2">Confirmando pagamento…</h2>
+            <p className="text-[#8e8e8e] text-[14px]">Aguarde enquanto confirmamos sua inscrição.</p>
+          </div>
         </>
       ) : (
         <>
@@ -1245,9 +1255,39 @@ export function CheckoutPage() {
           sessionStorage.removeItem('deserty_checkout_tournament');
         }
       } catch { /* ignore */ }
-      setStep('success');
+
+      // Poll until webhook confirms payment_status = "paid" (max 30s)
+      setStep('payment-details');
       setLoadingInit(false);
-      return;
+
+      let attempts = 0;
+      const maxAttempts = 15;
+      const interval = setInterval(async () => {
+        attempts++;
+        try {
+          const { data: reg } = await supabase
+            .from('registrations')
+            .select('id, payment_status')
+            .eq('stripe_session_id', sessionId)
+            .maybeSingle();
+
+          if (reg?.payment_status === 'paid') {
+            clearInterval(interval);
+            setStep('success');
+          } else if (attempts >= maxAttempts) {
+            clearInterval(interval);
+            // Webhook may still be processing — show success anyway
+            setStep('success');
+          }
+        } catch {
+          if (attempts >= maxAttempts) {
+            clearInterval(interval);
+            setStep('success');
+          }
+        }
+      }, 2000);
+
+      return () => clearInterval(interval);
     }
     initCheckout();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1509,7 +1549,7 @@ export function CheckoutPage() {
           {step === 'payment-method' && (
             <PaymentMethodStep {...stepProps} discountRate={discountRate} onPay={handlePay} paying={paying}/>
           )}
-          {step === 'payment-details' && <PaymentDetailsStep error={payError}/>}
+          {step === 'payment-details' && <PaymentDetailsStep error={payError} confirming={!!sessionId}/>}
           {step === 'success'         && (
             <SuccessStep data={data} returnUrl={returnUrl} discountRate={discountRate}/>
           )}
