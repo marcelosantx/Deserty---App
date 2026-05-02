@@ -351,9 +351,10 @@ function PartnerReviewStep({ regData, onNext }: {
 }
 
 // ─── STEP 1: Auth ─────────────────────────────────────────────────────────────
-function AuthStep({ onUpdate, onNext }: {
+function AuthStep({ onUpdate, onNext, onPartnerLogin }: {
   onUpdate: (u: Partial<CheckoutData>) => void;
   onNext: () => void;
+  onPartnerLogin?: (userId: string) => Promise<void>;
 }) {
   const [mode, setMode]         = useState<'login'|'register'>('login');
   const [email, setEmail]       = useState('');
@@ -388,7 +389,11 @@ function AuthStep({ onUpdate, onNext }: {
           ? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username
           : email.split('@')[0];
         onUpdate({ user: { id: user.id, name: displayName, email: user.email! } });
-        onNext();
+        if (onPartnerLogin) {
+          await onPartnerLogin(user.id);
+        } else {
+          onNext();
+        }
       } else {
         const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
@@ -1590,10 +1595,14 @@ export function CheckoutPage() {
         if (!isPartnerFlow) setStep('categories');
       }
 
-      // Partner flow: load existing registration data
+      // Partner flow: load data only when logged in (RLS blocks anon reads)
       if (isPartnerFlow && partnerRegId) {
-        await loadPartnerRegData(partnerRegId, !!session?.user);
-        return; // loadPartnerRegData handles setLoadingInit and setStep
+        if (session?.user) {
+          await loadPartnerRegData(partnerRegId, true);
+        } else {
+          setLoadingInit(false); // stay at auth step
+        }
+        return;
       }
 
       // ── 2. Fetch tournament + event cover ──────────────────────────────────
@@ -1832,7 +1841,15 @@ export function CheckoutPage() {
       {/* Content */}
       <div className={`flex-1 ${step==='success'||step==='payment-details'?'flex flex-col':''}`}>
         <div className={step==='success'||step==='payment-details' ? 'flex-1 flex flex-col' : 'max-w-2xl mx-auto px-4 py-6 pb-12 w-full'}>
-          {step === 'auth'           && <AuthStep onUpdate={update} onNext={goNext}/>}
+          {step === 'auth'           && (
+            <AuthStep
+              onUpdate={update}
+              onNext={goNext}
+              onPartnerLogin={isPartnerFlow && partnerRegId ? async (_userId) => {
+                await loadPartnerRegData(partnerRegId, true);
+              } : undefined}
+            />
+          )}
           {step === 'partner-review' && partnerRegData && (
             <PartnerReviewStep regData={partnerRegData} onNext={goNext}/>
           )}
