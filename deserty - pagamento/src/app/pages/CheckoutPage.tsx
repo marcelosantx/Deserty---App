@@ -1177,8 +1177,8 @@ function PaymentDetailsStep({ error, confirming = false }: { error: string | nul
 }
 
 // ─── STEP 8: Success ──────────────────────────────────────────────────────────
-function SuccessStep({ data, returnUrl, discountRate }: {
-  data: CheckoutData; returnUrl: string; discountRate: number;
+function SuccessStep({ data, returnUrl, tournamentId, discountRate }: {
+  data: CheckoutData; returnUrl: string; tournamentId: string; discountRate: number;
 }) {
   const pricing = computePricing(data, discountRate);
   const partnerEmails = pricing.lines
@@ -1247,7 +1247,10 @@ function SuccessStep({ data, returnUrl, discountRate }: {
           <Btn variant="secondary" onClick={() => window.location.href = returnUrl} fullWidth>
             <ArrowLeft size={15}/>Voltar ao evento
           </Btn>
-          <Btn onClick={() => window.location.href = returnUrl} fullWidth>
+          <Btn onClick={() => {
+            const appUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+            window.location.href = tournamentId ? `${appUrl}/tournament/${tournamentId}` : returnUrl;
+          }} fullWidth>
             <Award size={15}/>Ver torneio
           </Btn>
         </div>
@@ -1298,8 +1301,12 @@ export function CheckoutPage() {
       } catch { /* ignore */ }
 
       // Poll until webhook confirms payment_status = "paid" (max 30s)
+      // If webhook is slow, verify-session endpoint acts as fallback
       setStep('payment-details');
       setLoadingInit(false);
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
+      const anonKey    = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
       let attempts = 0;
       const maxAttempts = 15;
@@ -1317,7 +1324,17 @@ export function CheckoutPage() {
             setStep('success');
           } else if (attempts >= maxAttempts) {
             clearInterval(interval);
-            // Webhook may still be processing — show success anyway
+            // Webhook too slow — call verify-session to guarantee DB update
+            try {
+              await fetch(
+                `${supabaseUrl}/functions/v1/server/make-server-06b83993/stripe/verify-session`,
+                {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${anonKey}`, 'apikey': anonKey },
+                  body: JSON.stringify({ session_id: sessionId }),
+                },
+              );
+            } catch { /* best-effort */ }
             setStep('success');
           }
         } catch {
@@ -1618,7 +1635,7 @@ export function CheckoutPage() {
           )}
           {step === 'payment-details' && <PaymentDetailsStep error={payError} confirming={!!sessionId}/>}
           {step === 'success'         && (
-            <SuccessStep data={data} returnUrl={returnUrl} discountRate={discountRate}/>
+            <SuccessStep data={data} returnUrl={returnUrl} tournamentId={tournamentId} discountRate={discountRate}/>
           )}
         </div>
       </div>
