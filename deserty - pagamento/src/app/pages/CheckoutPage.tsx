@@ -1583,6 +1583,14 @@ export function CheckoutPage() {
 
   const initCheckout = async () => {
     if (!tournamentId) {
+      // After Google OAuth, Supabase redirects to the base URL losing the partner params.
+      // Restore the original URL from sessionStorage before showing an error.
+      const savedUrl = sessionStorage.getItem('deserty_oauth_return');
+      if (savedUrl) {
+        sessionStorage.removeItem('deserty_oauth_return');
+        window.location.replace(savedUrl);
+        return;
+      }
       setInitError('Torneio não identificado. Volte ao evento e tente novamente.');
       setLoadingInit(false);
       return;
@@ -1606,17 +1614,6 @@ export function CheckoutPage() {
 
       const { data: { session } } = await supabase.auth.getSession();
       console.log('[Checkout] session after restore:', { hasSession: !!session, userId: session?.user?.id });
-
-      // After Google OAuth, Supabase redirects to the base URL (losing partner params).
-      // Restore the original URL from sessionStorage so params like tid/regId/partnerFlow are present.
-      if (session?.user && !tournamentId) {
-        const savedUrl = sessionStorage.getItem('deserty_oauth_return');
-        if (savedUrl) {
-          sessionStorage.removeItem('deserty_oauth_return');
-          window.location.replace(savedUrl);
-          return;
-        }
-      }
 
       if (session?.user) {
         const { data: profile } = await supabase
