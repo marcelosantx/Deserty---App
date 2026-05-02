@@ -390,7 +390,14 @@ function AuthStep({ onUpdate, onNext, onPartnerLogin }: {
           : email.split('@')[0];
         onUpdate({ user: { id: user.id, name: displayName, email: user.email! } });
         if (onPartnerLogin) {
-          await onPartnerLogin(user.id);
+          setLoading(true);
+          try {
+            await onPartnerLogin(user.id);
+          } catch {
+            setErrs({ submit: 'Erro ao carregar inscrição. Tente novamente.' });
+          } finally {
+            setLoading(false);
+          }
         } else {
           onNext();
         }
@@ -1465,16 +1472,31 @@ export function CheckoutPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadPartnerRegData = async (regId: string, isLoggedIn: boolean) => {
+  const loadPartnerRegData = async (regId: string, userId: string) => {
+    console.log('[Partner] loadPartnerRegData start — regId:', regId, 'userId:', userId);
     try {
-      const { data: reg } = await supabase
+      let { data: reg } = await supabase
         .from('registrations')
         .select('id, tournament_id, uniform_size, duo_id, payment_status')
         .eq('id', regId)
+        .eq('player_id', userId)
         .maybeSingle();
 
+      console.log('[Partner] reg result (with player_id):', reg);
+
       if (!reg) {
-        setInitError('Inscrição não encontrada. Verifique se está logado com a conta correta.');
+        // Fallback: try without player_id filter (RLS may use different policy)
+        const { data: regFallback, error: fallbackError } = await supabase
+          .from('registrations')
+          .select('id, tournament_id, uniform_size, duo_id, payment_status')
+          .eq('id', regId)
+          .maybeSingle();
+        console.log('[Partner] fallback reg:', regFallback, 'error:', fallbackError);
+        reg = regFallback;
+      }
+
+      if (!reg) {
+        setInitError(`Inscrição não encontrada (regId: ${regId.slice(0,8)}…). Verifique se está logado com a conta correta.`);
         setLoadingInit(false);
         return;
       }
@@ -1548,7 +1570,7 @@ export function CheckoutPage() {
       setCategories([cat]);
       update({ selectedCategories: [cat] });
 
-      if (isLoggedIn) setStep('partner-review');
+      setStep('partner-review');
     } catch (err: any) {
       setInitError(err.message ?? 'Erro ao carregar inscrição.');
     } finally {
@@ -1598,9 +1620,9 @@ export function CheckoutPage() {
       // Partner flow: load data only when logged in (RLS blocks anon reads)
       if (isPartnerFlow && partnerRegId) {
         if (session?.user) {
-          await loadPartnerRegData(partnerRegId, true);
+          await loadPartnerRegData(partnerRegId, session.user.id);
         } else {
-          setLoadingInit(false); // stay at auth step
+          setLoadingInit(false);
         }
         return;
       }
@@ -1845,8 +1867,8 @@ export function CheckoutPage() {
             <AuthStep
               onUpdate={update}
               onNext={goNext}
-              onPartnerLogin={isPartnerFlow && partnerRegId ? async (_userId) => {
-                await loadPartnerRegData(partnerRegId, true);
+              onPartnerLogin={isPartnerFlow && partnerRegId ? async (userId) => {
+                await loadPartnerRegData(partnerRegId, userId);
               } : undefined}
             />
           )}
