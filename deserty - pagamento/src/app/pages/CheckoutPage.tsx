@@ -443,7 +443,7 @@ function CategoryStep({ data, onUpdate, onNext, onBack, categories, discountRate
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {categories.map(cat => {
             const sel      = !!data.selectedCategories.find(c => c.id === cat.id);
-            const sold     = cat.spotsLeft === 0;
+            const sold     = cat.spotsLeft === 0 && cat.total > 0;
             const wouldIdx = sel
               ? data.selectedCategories.findIndex(c => c.id === cat.id)
               : selectedCount;
@@ -486,7 +486,7 @@ function CategoryStep({ data, onUpdate, onNext, onBack, categories, discountRate
                     <span className="text-[#8e8e8e] text-[12px]">{fmt(cat.pricePerAthlete)}</span>
                   </div>
                 </div>
-                {!sold && (
+                {!sold && cat.total > 0 && cat.spotsLeft < 999 && (
                   <p className="text-[10px] text-[#3a3a3a] mt-2">{cat.spotsLeft}/{cat.total} vagas</p>
                 )}
               </button>
@@ -1373,11 +1373,18 @@ export function CheckoutPage() {
       }
 
       // ── 2. Fetch tournament + event cover ──────────────────────────────────
-      const { data: t, error: tErr } = await supabase
-        .from('tournaments')
-        .select('id, title, modality, location, start_date, end_date, registration_fee, discount_percent, discount_min_categories, include_uniform, event_id, events(cover_url)')
-        .eq('id', tournamentId)
-        .maybeSingle();
+      const [{ data: t, error: tErr }, { count: registeredCount }] = await Promise.all([
+        supabase
+          .from('tournaments')
+          .select('id, title, modality, location, start_date, end_date, registration_fee, discount_percent, discount_min_categories, include_uniform, max_registrations, event_id, events(cover_url)')
+          .eq('id', tournamentId)
+          .maybeSingle(),
+        supabase
+          .from('registrations')
+          .select('id', { count: 'exact', head: true })
+          .eq('tournament_id', tournamentId)
+          .in('payment_status', ['paid', 'pending']),
+      ]);
 
       if (tErr || !t) {
         console.error('[Checkout] tournament fetch error:', tErr, 'tid:', tournamentId);
@@ -1387,6 +1394,10 @@ export function CheckoutPage() {
       }
 
       const eventCover = (t as any).events?.cover_url ?? null;
+      const maxRegs: number | null = (t as any).max_registrations ?? null;
+      const totalSpots = maxRegs ?? 0;
+      const takenSpots = registeredCount ?? 0;
+      const spotsLeft = maxRegs != null ? Math.max(0, totalSpots - takenSpots) : 999;
 
       setTournament({
         id:                    t.id,
@@ -1409,8 +1420,8 @@ export function CheckoutPage() {
         name:            t.title,
         gender:          (t as any).modality ?? '',
         pricePerAthlete: t.registration_fee ?? 60,
-        spotsLeft:       32,
-        total:           32,
+        spotsLeft,
+        total:           maxRegs ?? spotsLeft,
       }];
       setCategories(mapped);
 
