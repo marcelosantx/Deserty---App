@@ -14,7 +14,7 @@ import imgSynergy   from 'figma:asset/c1bbbe3578f99a2cce1355514a603fdcb1c8dc52.p
 // ─── Types ────────────────────────────────────────────────────────────────────
 type CheckoutStep =
   | 'auth' | 'categories' | 'uniform' | 'partners'
-  | 'review' | 'billing' | 'payment-method' | 'payment-details' | 'success';
+  | 'review' | 'partner-review' | 'billing' | 'payment-method' | 'payment-details' | 'success';
 
 interface TournamentMeta {
   id: string;
@@ -61,17 +61,34 @@ interface CheckoutData {
   uniformSizes: { payer: string | null; partner: string | null };
 }
 
+interface PartnerRegData {
+  registrationId: string;
+  tournamentName: string;
+  tournamentDate: string;
+  tournamentLocation: string | null;
+  categoryName: string;
+  uniformSize: string | null;
+  priceInBRL: number;
+  payerName: string;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 const STEP_ORDER: CheckoutStep[] = [
   'auth', 'categories', 'partners', 'uniform', 'review', 'billing',
   'payment-method', 'payment-details', 'success',
 ];
+const PARTNER_STEP_ORDER: CheckoutStep[] = [
+  'auth', 'partner-review', 'billing', 'payment-method', 'payment-details', 'success',
+];
 const VISIBLE_STEPS: CheckoutStep[] = [
   'auth', 'categories', 'partners', 'uniform', 'review', 'billing', 'payment-method',
 ];
+const PARTNER_VISIBLE_STEPS: CheckoutStep[] = [
+  'auth', 'partner-review', 'billing', 'payment-method',
+];
 const STEP_LABELS: Partial<Record<CheckoutStep, string>> = {
   auth: 'Acesso', categories: 'Categorias', partners: 'Dupla', uniform: 'Uniforme',
-  review: 'Revisão', billing: 'Faturamento', 'payment-method': 'Pagamento',
+  review: 'Revisão', 'partner-review': 'Revisão', billing: 'Faturamento', 'payment-method': 'Pagamento',
 };
 const UNIFORM_SIZES = ['PP', 'P', 'M', 'G', 'GG', 'XGG'];
 const INITIAL_DATA: CheckoutData = {
@@ -252,8 +269,9 @@ function EventBanner({ tournament }: { tournament: TournamentMeta | null }) {
 }
 
 // ─── Step Indicator ───────────────────────────────────────────────────────────
-function StepIndicator({ current, includeUniform }: { current: CheckoutStep; includeUniform?: boolean }) {
-  const visibleSteps = VISIBLE_STEPS.filter(s => s !== 'uniform' || includeUniform);
+function StepIndicator({ current, includeUniform, isPartner }: { current: CheckoutStep; includeUniform?: boolean; isPartner?: boolean }) {
+  const baseVisible = isPartner ? PARTNER_VISIBLE_STEPS : VISIBLE_STEPS;
+  const visibleSteps = baseVisible.filter(s => s !== 'uniform' || includeUniform);
   const ci = visibleSteps.indexOf(
     current === 'payment-details' ? 'payment-method' : current,
   );
@@ -282,6 +300,53 @@ function StepIndicator({ current, includeUniform }: { current: CheckoutStep; inc
         );
       })}
     </div>
+  );
+}
+
+// ─── STEP: Partner Review (read-only) ─────────────────────────────────────────
+function PartnerReviewStep({ regData, onNext }: {
+  regData: PartnerRegData;
+  onNext: () => void;
+}) {
+  return (
+    <Card>
+      <div className="flex flex-col gap-5">
+        <div>
+          <p className="text-[#8e8e8e] text-[11px] uppercase tracking-wider mb-1">Sua inscrição</p>
+          <h2 className="text-white font-bold text-[18px] leading-tight">{regData.tournamentName}</h2>
+          {regData.tournamentDate && (
+            <p className="text-[#8e8e8e] text-[13px] mt-1">{regData.tournamentDate}{regData.tournamentLocation ? ` · ${regData.tournamentLocation}` : ''}</p>
+          )}
+        </div>
+
+        <div className="border border-[#2a2a2a] rounded-[12px] p-4 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[#8e8e8e] text-[13px]">Dupla com</span>
+            <span className="text-white text-[13px] font-medium">{regData.payerName}</span>
+          </div>
+          {regData.uniformSize && (
+            <div className="flex items-center justify-between">
+              <span className="text-[#8e8e8e] text-[13px]">Uniforme (seu tamanho)</span>
+              <span className="text-white text-[13px] font-medium">{regData.uniformSize}</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between border-t border-[#2a2a2a] pt-3 mt-1">
+            <span className="text-[#8e8e8e] text-[13px]">Valor a pagar</span>
+            <span className="text-[#3ECF8E] text-[16px] font-bold">
+              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(regData.priceInBRL)}
+            </span>
+          </div>
+        </div>
+
+        <InfoBox color="green">
+          Os dados da inscrição foram definidos pelo seu parceiro de dupla e não podem ser alterados.
+        </InfoBox>
+
+        <Btn onClick={onNext} fullWidth>
+          Confirmar e continuar
+        </Btn>
+      </div>
+    </Card>
   );
 }
 
@@ -1310,9 +1375,11 @@ export function CheckoutPage() {
   const returnUrl     = params.get('return') ?? (import.meta.env.VITE_APP_URL as string) ?? '/';
   const sessionId     = params.get('session_id');  // Stripe callback
   const isPartnerFlow = params.get('partnerFlow') === '1';
+  const partnerRegId  = params.get('regId') ?? '';
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [step, setStep]           = useState<CheckoutStep>('auth');
+  const [partnerRegData, setPartnerRegData] = useState<PartnerRegData | null>(null);
   const [data, setData]           = useState<CheckoutData>(INITIAL_DATA);
   const [tournament, setTournament] = useState<TournamentMeta | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -1393,6 +1460,97 @@ export function CheckoutPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const loadPartnerRegData = async (regId: string, isLoggedIn: boolean) => {
+    try {
+      const { data: reg } = await supabase
+        .from('registrations')
+        .select('id, tournament_id, uniform_size, duo_id, payment_status')
+        .eq('id', regId)
+        .maybeSingle();
+
+      if (!reg) {
+        setInitError('Inscrição não encontrada. Verifique se está logado com a conta correta.');
+        setLoadingInit(false);
+        return;
+      }
+
+      if (reg.payment_status === 'paid') {
+        setInitError('Esta inscrição já foi paga.');
+        setLoadingInit(false);
+        return;
+      }
+
+      const [{ data: tournament }, { data: payerReg }] = await Promise.all([
+        supabase.from('tournaments')
+          .select('id, title, registration_fee, location, start_date')
+          .eq('id', reg.tournament_id)
+          .maybeSingle(),
+        reg.duo_id
+          ? supabase.from('registrations')
+              .select('profiles(first_name, last_name, username)')
+              .eq('duo_id', reg.duo_id)
+              .eq('duo_position', 1)
+              .maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+
+      if (!tournament) {
+        setInitError('Torneio não encontrado.');
+        setLoadingInit(false);
+        return;
+      }
+
+      const payerProfile = (payerReg as any)?.profiles;
+      const payerName = payerProfile
+        ? [payerProfile.first_name, payerProfile.last_name].filter(Boolean).join(' ') || payerProfile.username
+        : 'Atleta 1';
+
+      setPartnerRegData({
+        registrationId: reg.id,
+        tournamentName: tournament.title,
+        tournamentDate: tournament.start_date
+          ? new Date(tournament.start_date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
+          : '',
+        tournamentLocation: tournament.location ?? null,
+        categoryName: tournament.title,
+        uniformSize: reg.uniform_size ?? null,
+        priceInBRL: tournament.registration_fee ?? 60,
+        payerName,
+      });
+
+      setTournament({
+        id: tournament.id,
+        name: tournament.title,
+        coverUrl: null,
+        location: tournament.location ?? null,
+        dateLabel: tournament.start_date
+          ? new Date(tournament.start_date).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
+          : '',
+        registrationFee: tournament.registration_fee ?? 60,
+        discountPercent: 0,
+        discountMinCategories: 2,
+        includeUniform: false,
+      });
+
+      const cat: Category = {
+        id: tournament.id,
+        name: tournament.title,
+        gender: '',
+        pricePerAthlete: tournament.registration_fee ?? 60,
+        spotsLeft: 999,
+        total: 999,
+      };
+      setCategories([cat]);
+      update({ selectedCategories: [cat] });
+
+      if (isLoggedIn) setStep('partner-review');
+    } catch (err: any) {
+      setInitError(err.message ?? 'Erro ao carregar inscrição.');
+    } finally {
+      setLoadingInit(false);
+    }
+  };
+
   const initCheckout = async () => {
     if (!tournamentId) {
       setInitError('Torneio não identificado. Volte ao evento e tente novamente.');
@@ -1428,7 +1586,14 @@ export function CheckoutPage() {
           ? [profile.first_name, profile.last_name].filter(Boolean).join(' ') || profile.username
           : session.user.email?.split('@')[0] ?? 'Atleta';
         update({ user: { id: session.user.id, name: displayName, email: session.user.email! } });
-        setStep('categories'); // skip auth
+        // partner flow: data loading happens below, step will be set there
+        if (!isPartnerFlow) setStep('categories');
+      }
+
+      // Partner flow: load existing registration data
+      if (isPartnerFlow && partnerRegId) {
+        await loadPartnerRegData(partnerRegId, !!session?.user);
+        return; // loadPartnerRegData handles setLoadingInit and setStep
       }
 
       // ── 2. Fetch tournament + event cover ──────────────────────────────────
@@ -1499,20 +1664,21 @@ export function CheckoutPage() {
   };
 
   // ── Navigation ─────────────────────────────────────────────────────────────
+  const activeStepOrder = isPartnerFlow ? PARTNER_STEP_ORDER : STEP_ORDER;
+
   const goNext = () => {
-    let i = STEP_ORDER.indexOf(step) + 1;
-    while (i < STEP_ORDER.length) {
-      const next = STEP_ORDER[i];
+    let i = activeStepOrder.indexOf(step) + 1;
+    while (i < activeStepOrder.length) {
+      const next = activeStepOrder[i];
       if (next === 'uniform' && !tournament?.includeUniform) { i++; continue; }
-      if (next === 'partners' && isPartnerFlow) { i++; continue; }
       setStep(next);
       return;
     }
   };
   const goBack = () => {
-    let i = STEP_ORDER.indexOf(step) - 1;
+    let i = activeStepOrder.indexOf(step) - 1;
     while (i >= 0) {
-      const prev = STEP_ORDER[i];
+      const prev = activeStepOrder[i];
       if (prev === 'uniform' && !tournament?.includeUniform) { i--; continue; }
       setStep(prev);
       return;
@@ -1573,8 +1739,16 @@ export function CheckoutPage() {
       };
 
       const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+      if (isPartnerFlow && partnerRegId) {
+        (body as any).registration_id = partnerRegId;
+      }
+
+      const endpoint = isPartnerFlow
+        ? `${supabaseUrl}/functions/v1/server/make-server-06b83993/stripe/create-partner-checkout`
+        : `${supabaseUrl}/functions/v1/server/make-server-06b83993/stripe/create-checkout`;
       const res = await fetch(
-        `${supabaseUrl}/functions/v1/server/make-server-06b83993/stripe/create-checkout`,
+        endpoint,
         {
           method: 'POST',
           headers: {
@@ -1638,7 +1812,7 @@ export function CheckoutPage() {
       <div className="sticky top-0 z-20">
         <div className="bg-[#121212]/95 backdrop-blur-sm border-b border-[#1a1a1a] flex items-center justify-between px-5 py-2.5">
           {step !== 'success'
-            ? <button onClick={() => { if (STEP_ORDER.indexOf(step) > 0) goBack(); else window.location.href = returnUrl; }}
+            ? <button onClick={() => { if (activeStepOrder.indexOf(step) > 0) goBack(); else window.location.href = returnUrl; }}
                 className="flex items-center gap-1.5 text-[#8e8e8e] hover:text-white transition-colors text-[13px]">
                 <ArrowLeft size={15}/><span className="hidden sm:inline">Voltar</span>
               </button>
@@ -1650,7 +1824,7 @@ export function CheckoutPage() {
         </div>
         {step !== 'success' && step !== 'payment-details' && (
           <div className="bg-[#121212]/95 backdrop-blur-sm border-b border-[#1a1a1a]">
-            <StepIndicator current={step} includeUniform={tournament?.includeUniform}/>
+            <StepIndicator current={step} includeUniform={tournament?.includeUniform} isPartner={isPartnerFlow}/>
           </div>
         )}
       </div>
@@ -1659,6 +1833,9 @@ export function CheckoutPage() {
       <div className={`flex-1 ${step==='success'||step==='payment-details'?'flex flex-col':''}`}>
         <div className={step==='success'||step==='payment-details' ? 'flex-1 flex flex-col' : 'max-w-2xl mx-auto px-4 py-6 pb-12 w-full'}>
           {step === 'auth'           && <AuthStep onUpdate={update} onNext={goNext}/>}
+          {step === 'partner-review' && partnerRegData && (
+            <PartnerReviewStep regData={partnerRegData} onNext={goNext}/>
+          )}
           {step === 'categories'     && (
             <CategoryStep {...stepProps} categories={categories} discountRate={discountRate}/>
           )}
