@@ -1584,9 +1584,11 @@ export function CheckoutPage() {
   const initCheckout = async () => {
     if (!tournamentId) {
       // After Google OAuth, Supabase redirects to the base URL losing the partner params.
-      // Restore the original URL from sessionStorage before showing an error.
+      // Wait for the SDK to finish the PKCE code exchange (getSession awaits initializePromise),
+      // then restore the original URL so the session is already in localStorage on next load.
       const savedUrl = sessionStorage.getItem('deserty_oauth_return');
       if (savedUrl) {
+        await supabase.auth.getSession(); // ensures PKCE exchange completes + session is stored
         sessionStorage.removeItem('deserty_oauth_return');
         window.location.replace(savedUrl);
         return;
