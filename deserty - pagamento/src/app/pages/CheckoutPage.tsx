@@ -418,12 +418,9 @@ function AuthStep({ onUpdate, onNext, onPartnerLogin }: {
   };
 
   const handleGoogle = async () => {
-    // Save full URL (with partner params) — Supabase can't validate URLs with query strings
-    // against the allowlist, so we redirect to the base URL and restore params after OAuth
-    sessionStorage.setItem('deserty_oauth_return', window.location.href);
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin + '/' },
+      options: { redirectTo: window.location.href },
     });
   };
 
@@ -1395,6 +1392,7 @@ export function CheckoutPage() {
   // ── State ──────────────────────────────────────────────────────────────────
   const [step, setStep]           = useState<CheckoutStep>('auth');
   const [partnerRegData, setPartnerRegData] = useState<PartnerRegData | null>(null);
+  const partnerDataLoadedRef = useRef(false);
   const [data, setData]           = useState<CheckoutData>(INITIAL_DATA);
   const [tournament, setTournament] = useState<TournamentMeta | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -1406,6 +1404,21 @@ export function CheckoutPage() {
   const discountRate = (tournament?.discountPercent ?? 0) / 100;
 
   const update = (u: Partial<CheckoutData>) => setData(p => ({ ...p, ...u }));
+
+  // ── Partner flow: detect Google OAuth sign-in via onAuthStateChange ──────────
+  // initCheckout relies on getSession() timing which can miss the PKCE exchange.
+  // onAuthStateChange('SIGNED_IN') fires reliably once the session is established.
+  useEffect(() => {
+    if (!isPartnerFlow || !partnerRegId) return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user && !partnerDataLoadedRef.current) {
+        partnerDataLoadedRef.current = true;
+        await loadPartnerRegData(partnerRegId, session.user.id);
+      }
+    });
+    return () => subscription.unsubscribe();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── On mount: check Stripe session_id callback first ──────────────────────
   useEffect(() => {
@@ -1583,16 +1596,6 @@ export function CheckoutPage() {
 
   const initCheckout = async () => {
     if (!tournamentId) {
-      // After Google OAuth, Supabase redirects to the base URL losing the partner params.
-      // Wait for the SDK to finish the PKCE code exchange (getSession awaits initializePromise),
-      // then restore the original URL so the session is already in localStorage on next load.
-      const savedUrl = sessionStorage.getItem('deserty_oauth_return');
-      if (savedUrl) {
-        await supabase.auth.getSession(); // ensures PKCE exchange completes + session is stored
-        sessionStorage.removeItem('deserty_oauth_return');
-        window.location.replace(savedUrl);
-        return;
-      }
       setInitError('Torneio não identificado. Volte ao evento e tente novamente.');
       setLoadingInit(false);
       return;
@@ -1631,11 +1634,13 @@ export function CheckoutPage() {
         if (!isPartnerFlow) setStep('categories');
       }
 
-      // Partner flow: load data only when logged in (RLS blocks anon reads)
+      // Partner flow: if session already exists on page load, load registration data.
+      // If no session yet (user needs to log in), onAuthStateChange handles it after OAuth.
       if (isPartnerFlow && partnerRegId) {
-        if (session?.user) {
+        if (session?.user && !partnerDataLoadedRef.current) {
+          partnerDataLoadedRef.current = true;
           await loadPartnerRegData(partnerRegId, session.user.id);
-        } else {
+        } else if (!session?.user) {
           setLoadingInit(false);
         }
         return;
