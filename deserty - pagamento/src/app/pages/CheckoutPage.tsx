@@ -351,10 +351,11 @@ function PartnerReviewStep({ regData, onNext }: {
 }
 
 // ─── STEP 1: Auth ─────────────────────────────────────────────────────────────
-function AuthStep({ onUpdate, onNext, onPartnerLogin }: {
+function AuthStep({ onUpdate, onNext, onPartnerLogin, partnerMode }: {
   onUpdate: (u: Partial<CheckoutData>) => void;
   onNext: () => void;
   onPartnerLogin?: (userId: string) => Promise<void>;
+  partnerMode?: boolean;
 }) {
   const [mode, setMode]         = useState<'login'|'register'>('login');
   const [email, setEmail]       = useState('');
@@ -462,16 +463,23 @@ function AuthStep({ onUpdate, onNext, onPartnerLogin }: {
         <Btn onClick={submit} fullWidth disabled={loading}>
           {loading ? <Loader2 size={16} className="animate-spin"/> : (mode === 'login' ? 'Entrar' : 'Criar conta')}
         </Btn>
-        <button onClick={handleGoogle}
-          className="w-full h-[48px] bg-[#1c1c1c] hover:bg-[#252525] border border-[#333] text-white font-medium rounded-[100px] flex items-center justify-center gap-3 transition-colors text-[14px]">
-          <svg className="w-5 h-5" viewBox="0 0 24 24">
-            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-          </svg>
-          Entrar com Google
-        </button>
+        {!partnerMode && (
+          <button onClick={handleGoogle}
+            className="w-full h-[48px] bg-[#1c1c1c] hover:bg-[#252525] border border-[#333] text-white font-medium rounded-[100px] flex items-center justify-center gap-3 transition-colors text-[14px]">
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+              <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+              <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+              <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            </svg>
+            Entrar com Google
+          </button>
+        )}
+        {partnerMode && (
+          <InfoBox color="amber">
+            Use seu email e senha para acessar. Caso só tenha conta Google, defina uma senha em deserty.com.br/conta.
+          </InfoBox>
+        )}
       </div>
       <div className="mt-4 text-center">
         <span className="text-[14px] text-[#8e8e8e]">{mode==='login'?'Não tem conta? ':'Já tem conta? '}</span>
@@ -937,9 +945,8 @@ function PartnerStep({ data, onUpdate, onNext, onBack, discountRate }: {
 }
 
 // ─── STEP 4: Review ───────────────────────────────────────────────────────────
-function PaySplitBlock({ cat, catIdx, partner, payOption, onSetOption, discountRate }: {
-  cat: Category; catIdx: number; partner: Partner | null;
-  payOption: 'full' | 'mine'; onSetOption: (v: 'full' | 'mine') => void; discountRate: number;
+function PaySplitBlock({ cat, catIdx, partner, discountRate }: {
+  cat: Category; catIdx: number; partner: Partner | null; discountRate: number;
 }) {
   const myPrice   = myAthletePrice(catIdx, cat.pricePerAthlete, discountRate);
   const pPrice    = partnerAthletePrice(cat.pricePerAthlete);
@@ -956,7 +963,7 @@ function PaySplitBlock({ cat, catIdx, partner, payOption, onSetOption, discountR
           </span>
         )}
       </div>
-      <div className="flex items-center justify-between mb-4 text-[12px]">
+      <div className="flex items-center justify-between text-[12px]">
         <div className="flex items-center gap-2">
           <img src={imgSynergy} className="w-5 h-5 rounded-full object-cover" alt=""/>
           <span className="text-[#8e8e8e]">Você</span>
@@ -972,41 +979,10 @@ function PaySplitBlock({ cat, catIdx, partner, payOption, onSetOption, discountR
           </div>
         )}
       </div>
-      <div className="flex flex-col gap-2">
-        {(['full','mine'] as const).map(opt => (
-          <button key={opt} onClick={() => onSetOption(opt)}
-            className={`w-full text-left p-3 rounded-[8px] border transition-all flex items-center gap-3
-              ${payOption===opt?'border-[#3ECF8E] bg-[#3ECF8E]/10':'border-[#2a2a2a] bg-[#1a1a1a] hover:border-[#4a4a4a]'}`}>
-            <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all
-              ${payOption===opt?'border-[#3ECF8E] bg-[#3ECF8E]':'border-[#4a4a4a]'}`}>
-              {payOption===opt && <div className="w-1.5 h-1.5 rounded-full bg-[#121212]"/>}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-white text-[12px] font-medium">
-                {opt==='full' ? 'Pagar total da dupla' : 'Pagar somente minha parte'}
-              </p>
-              <p className="text-[#8e8e8e] text-[11px] truncate">
-                {opt==='full' ? 'Você cobre os dois' : `${partner?.name ?? 'Dupla'} paga ${fmt(pPrice)} separado`}
-              </p>
-            </div>
-            <span className="text-[#3ECF8E] font-semibold text-[13px] shrink-0">
-              {fmt(opt==='full' ? pairTotal : myPrice)}
-            </span>
-          </button>
-        ))}
+      <div className="mt-3 flex items-center justify-between border-t border-[#2a2a2a] pt-3">
+        <span className="text-[#8e8e8e] text-[12px]">Total da dupla</span>
+        <span className="text-[#3ECF8E] font-semibold text-[14px]">{fmt(partner ? pairTotal : myPrice)}</span>
       </div>
-      {payOption === 'mine' && partner && (
-        <div className="mt-3">
-          <InfoBox color="amber">
-            <Mail size={12} className="inline mr-1 shrink-0"/>
-            <span className="font-medium text-white">{partner.name}</span>
-            {partner.precadastroEmail ? ` (${partner.precadastroEmail})` : ''}
-            {' '}receberá um e-mail com a fatura de{' '}
-            <span className="font-semibold text-white">{fmt(pPrice)}</span>
-            {' '}para {cat.name} {cat.gender}. Prazo: <span className="font-semibold text-white">3 dias</span>.
-          </InfoBox>
-        </div>
-      )}
     </div>
   );
 }
@@ -1015,8 +991,6 @@ function ReviewStep({ data, onUpdate, onNext, onBack, onGoTo, discountRate }: {
   data: CheckoutData; onUpdate: (u: Partial<CheckoutData>) => void;
   onNext: () => void; onBack: () => void; onGoTo: (s: CheckoutStep) => void; discountRate: number;
 }) {
-  const setPayOption = (catId: string, val: 'full'|'mine') =>
-    onUpdate({ payOptions: { ...data.payOptions, [catId]: val } });
   const pricing = computePricing(data, discountRate);
 
   return (
@@ -1071,9 +1045,7 @@ function ReviewStep({ data, onUpdate, onNext, onBack, onGoTo, discountRate }: {
                   </div>
                 )}
               </div>
-              <PaySplitBlock cat={cat} catIdx={idx} partner={partner ?? null}
-                payOption={data.payOptions[cat.id] ?? 'full'}
-                onSetOption={v => setPayOption(cat.id, v)} discountRate={discountRate}/>
+              <PaySplitBlock cat={cat} catIdx={idx} partner={partner ?? null} discountRate={discountRate}/>
             </div>
           );
         })}
@@ -1901,6 +1873,7 @@ export function CheckoutPage() {
             <AuthStep
               onUpdate={update}
               onNext={goNext}
+              partnerMode={isPartnerFlow}
               onPartnerLogin={isPartnerFlow && partnerRegId ? async (userId) => {
                 await loadPartnerRegData(partnerRegId, userId);
               } : undefined}
