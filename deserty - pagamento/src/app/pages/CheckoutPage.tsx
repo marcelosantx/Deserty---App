@@ -3,7 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router';
 import {
   ArrowLeft, Check, CheckCircle2, Copy, CreditCard,
   Edit2, Search, Smartphone, Users, X, AlertCircle,
-  Clock, Award, ChevronRight, Info, Mail, Tag, Loader2,
+  Award, ChevronRight, Info, Mail, Loader2,
+  FileText, Zap, ExternalLink,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 
@@ -57,7 +58,7 @@ interface CheckoutData {
   couponStatus: 'idle' | 'loading' | 'valid' | 'invalid';
   couponDiscount: number;
   payOptions: Record<string, 'full' | 'mine'>;
-  paymentMethod: 'pix' | 'credit_card' | null;
+  paymentMethod: BillingType | null;
   uniformSizes: { payer: string | null; partner: string | null };
 }
 
@@ -70,6 +71,22 @@ interface PartnerRegData {
   uniformSize: string | null;
   priceInBRL: number;
   payerName: string;
+}
+
+type BillingType = 'PIX' | 'BOLETO' | 'CREDIT_CARD';
+
+interface AsaasPaymentResult {
+  payment_id: string;
+  invoice_url: string;
+  billing_type: BillingType;
+  pix_code?: string;
+  pix_qr_base64?: string;
+  pix_expiration?: string;
+  boleto_url?: string;
+  boleto_identification_field?: string;
+  boleto_due_date?: string;
+  registration_ids: string[];
+  payer_total_brl: number;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -1172,32 +1189,33 @@ function BillingStep({ data, onUpdate, onNext, onBack, discountRate }: {
 }
 
 // ─── STEP 6: Payment Method ───────────────────────────────────────────────────
-function PaymentMethodStep({ data, onUpdate, onNext, onBack, discountRate, onPay, paying }: {
+function PaymentMethodStep({ data, onUpdate, onBack, discountRate, onPay, paying }: {
   data: CheckoutData; onUpdate: (u: Partial<CheckoutData>) => void;
   onNext: () => void; onBack: () => void; discountRate: number;
   onPay: () => void; paying: boolean;
 }) {
   const pricing = computePricing(data, discountRate);
+  const methods: { id: BillingType; icon: React.ReactNode; title: string; sub: string }[] = [
+    { id: 'PIX',         icon: <Zap size={20}/>,        title: 'Pix',              sub: 'Aprovação instantânea' },
+    { id: 'BOLETO',      icon: <FileText size={20}/>,   title: 'Boleto Bancário',  sub: 'Vencimento em 3 dias úteis' },
+    { id: 'CREDIT_CARD', icon: <CreditCard size={20}/>, title: 'Cartão de Crédito', sub: 'Visa, Mastercard, Elo e outras' },
+  ];
+
   return (
     <>
       <Card>
         <StepHeading title="Forma de pagamento"
           subtitle={`Total a pagar: ${fmt(pricing.userBaseTotal)}`}/>
         <div className="flex flex-col gap-3">
-          {([
-            { id:'credit_card' as const, icon:<CreditCard size={20}/>, title:'Cartão de Crédito', sub:'Visa, Mastercard, Elo e outras bandeiras', disabled: false },
-            { id:'pix' as const,         icon:<Smartphone size={20}/>, title:'Pix',                sub:'Em breve', disabled: true },
-          ] as const).map(m => {
+          {methods.map(m => {
             const sel = data.paymentMethod === m.id;
             return (
-              <button key={m.id} onClick={() => !m.disabled && onUpdate({ paymentMethod: m.id })}
-                disabled={m.disabled}
+              <button key={m.id} onClick={() => onUpdate({ paymentMethod: m.id })}
                 className={`w-full text-left p-4 rounded-[12px] border transition-all flex items-center gap-4
-                  ${m.disabled ? 'opacity-40 cursor-not-allowed border-[#2a2a2a] bg-[#171717]'
-                    : sel ? 'border-[#3ECF8E] bg-[#3ECF8E]/10 ring-1 ring-[#3ECF8E]/20'
-                           : 'border-[#2a2a2a] bg-[#171717] hover:border-[#4a4a4a]'}`}>
+                  ${sel ? 'border-[#3ECF8E] bg-[#3ECF8E]/10 ring-1 ring-[#3ECF8E]/20'
+                        : 'border-[#2a2a2a] bg-[#171717] hover:border-[#4a4a4a]'}`}>
                 <div className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 transition-all
-                  ${sel?'bg-[#3ECF8E] text-[#121212]':'bg-[#252525] text-[#8e8e8e]'}`}>{m.icon}</div>
+                  ${sel ? 'bg-[#3ECF8E] text-[#121212]' : 'bg-[#252525] text-[#8e8e8e]'}`}>{m.icon}</div>
                 <div className="flex-1 min-w-0">
                   <p className="text-white font-semibold">{m.title}</p>
                   <p className="text-[#8e8e8e] text-[12px]">{m.sub}</p>
@@ -1208,11 +1226,17 @@ function PaymentMethodStep({ data, onUpdate, onNext, onBack, discountRate, onPay
           })}
         </div>
 
-        {data.paymentMethod && (
-          <div className="mt-5">
+        {data.paymentMethod === 'CREDIT_CARD' && (
+          <div className="mt-4">
+            <InfoBox color="blue">
+              Você será redirecionado para o ambiente seguro de pagamento em uma nova aba.
+            </InfoBox>
+          </div>
+        )}
+        {data.paymentMethod === 'PIX' && (
+          <div className="mt-4">
             <InfoBox color="green">
-              Você será redirecionado para o ambiente seguro do Stripe para finalizar o pagamento.
-              {data.paymentMethod === 'pix' && ' O QR Code do Pix será exibido na próxima tela.'}
+              O QR Code e código Pix serão exibidos na próxima tela. Aprovação instantânea.
             </InfoBox>
           </div>
         )}
@@ -1222,6 +1246,8 @@ function PaymentMethodStep({ data, onUpdate, onNext, onBack, discountRate, onPay
         <Btn onClick={onPay} disabled={!data.paymentMethod || paying}>
           {paying
             ? <><Loader2 size={16} className="animate-spin"/>Preparando…</>
+            : data.paymentMethod === 'PIX' ? <><Zap size={16}/>Gerar QR Code Pix</>
+            : data.paymentMethod === 'BOLETO' ? <><FileText size={16}/>Gerar Boleto</>
             : <>Ir para pagamento<ChevronRight size={16}/></>}
         </Btn>
       </div>
@@ -1229,41 +1255,193 @@ function PaymentMethodStep({ data, onUpdate, onNext, onBack, discountRate, onPay
   );
 }
 
-// ─── STEP 7: Payment Details (redirect loading / payment processing) ─────────
-function PaymentDetailsStep({ error, confirming = false }: { error: string | null; confirming?: boolean }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20 gap-6">
-      {error ? (
-        <>
-          <div className="w-16 h-16 bg-[#e5534b]/10 rounded-full flex items-center justify-center">
-            <AlertCircle size={32} className="text-[#e5534b]"/>
-          </div>
-          <div className="text-center">
-            <h2 className="text-white text-[20px] font-semibold mb-2">Erro ao processar</h2>
-            <p className="text-[#8e8e8e] text-[14px] max-w-sm">{error}</p>
-          </div>
+// ─── STEP 7: Payment Details — Pix / Boleto inline, Cartão redirect ──────────
+function PaymentDetailsStep({
+  error,
+  paymentResult,
+  pollStatus,
+  onCopyPix,
+  onCopyBoleto,
+  pixCopied,
+  boletoCopied,
+  onBack,
+}: {
+  error: string | null;
+  paymentResult: AsaasPaymentResult | null;
+  pollStatus: 'waiting' | 'paid' | 'expired';
+  onCopyPix: () => void;
+  onCopyBoleto: () => void;
+  pixCopied: boolean;
+  boletoCopied: boolean;
+  onBack: () => void;
+}) {
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-6">
+        <div className="w-16 h-16 bg-[#e5534b]/10 rounded-full flex items-center justify-center">
+          <AlertCircle size={32} className="text-[#e5534b]"/>
+        </div>
+        <div className="text-center">
+          <h2 className="text-white text-[20px] font-semibold mb-2">Erro ao processar</h2>
+          <p className="text-[#8e8e8e] text-[14px] max-w-sm">{error}</p>
+        </div>
+        <div className="flex gap-3">
+          <Btn variant="secondary" onClick={onBack}><ArrowLeft size={16}/>Voltar</Btn>
           <Btn onClick={() => window.location.reload()}>Tentar novamente</Btn>
-        </>
-      ) : confirming ? (
-        <>
-          <div className="w-16 h-16 bg-[#3ECF8E]/10 rounded-full flex items-center justify-center">
-            <Loader2 size={32} className="text-[#3ECF8E] animate-spin"/>
+        </div>
+      </div>
+    );
+  }
+
+  if (!paymentResult) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <Loader2 size={36} className="text-[#3ECF8E] animate-spin"/>
+        <p className="text-[#8e8e8e] text-[14px]">Gerando pagamento…</p>
+      </div>
+    );
+  }
+
+  const { billing_type } = paymentResult;
+
+  if (pollStatus === 'paid') {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <div className="w-20 h-20 bg-[#3ECF8E]/10 rounded-full flex items-center justify-center">
+          <CheckCircle2 size={40} className="text-[#3ECF8E]" strokeWidth={1.5}/>
+        </div>
+        <h2 className="text-white text-[22px] font-semibold">Pagamento confirmado!</h2>
+        <p className="text-[#8e8e8e] text-[14px]">Redirecionando…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 py-6 pb-12 w-full">
+      <Card>
+        {/* PIX */}
+        {billing_type === 'PIX' && (
+          <div className="flex flex-col gap-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Zap size={18} className="text-[#3ECF8E]"/>
+                <h2 className="text-white font-semibold text-[16px]">Pague com Pix</h2>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse"/>
+                <span className="text-amber-400 text-[12px]">Aguardando…</span>
+              </div>
+            </div>
+
+            {paymentResult.pix_qr_base64 && (
+              <div className="flex justify-center">
+                <div className="bg-white p-3 rounded-[16px] w-[200px] h-[200px] flex items-center justify-center">
+                  <img
+                    src={`data:image/png;base64,${paymentResult.pix_qr_base64}`}
+                    alt="QR Code Pix" className="w-full h-full object-contain"
+                  />
+                </div>
+              </div>
+            )}
+
+            {paymentResult.pix_code && (
+              <div className="bg-[#171717] rounded-[12px] border border-[#2a2a2a] p-4">
+                <p className="text-[#8e8e8e] text-[11px] mb-2">Pix Copia e Cola</p>
+                <p className="text-[#8e8e8e] text-[11px] font-mono break-all leading-relaxed mb-3">
+                  {paymentResult.pix_code.slice(0, 60)}…
+                </p>
+                <button
+                  onClick={onCopyPix}
+                  className={`w-full h-[44px] rounded-[10px] flex items-center justify-center gap-2 font-semibold text-[13px] transition-all
+                    ${pixCopied ? 'bg-[#3ECF8E] text-[#121212]' : 'bg-[#2a2a2a] text-white hover:bg-[#333]'}`}
+                >
+                  {pixCopied ? <Check size={16}/> : <Copy size={16}/>}
+                  {pixCopied ? 'Copiado!' : 'Copiar código Pix'}
+                </button>
+              </div>
+            )}
+
+            <InfoBox color="green">
+              Confirme o pagamento no seu app bancário. Esta tela atualiza automaticamente.
+            </InfoBox>
           </div>
-          <div className="text-center">
-            <h2 className="text-white text-[20px] font-semibold mb-2">Confirmando pagamento…</h2>
-            <p className="text-[#8e8e8e] text-[14px]">Aguarde enquanto confirmamos sua inscrição.</p>
+        )}
+
+        {/* BOLETO */}
+        {billing_type === 'BOLETO' && (
+          <div className="flex flex-col gap-5">
+            <div className="flex items-center gap-2">
+              <FileText size={18} className="text-[#3ECF8E]"/>
+              <h2 className="text-white font-semibold text-[16px]">Boleto Bancário</h2>
+            </div>
+
+            {paymentResult.boleto_due_date && (
+              <InfoBox color="amber">
+                Vencimento: <strong>{new Date(paymentResult.boleto_due_date + 'T00:00:00').toLocaleDateString('pt-BR')}</strong>
+                {' '}· Compensação em até 3 dias úteis após o pagamento.
+              </InfoBox>
+            )}
+
+            {paymentResult.boleto_identification_field && (
+              <div className="bg-[#171717] rounded-[12px] border border-[#2a2a2a] p-4">
+                <p className="text-[#8e8e8e] text-[11px] mb-2">Linha digitável</p>
+                <p className="text-[#8e8e8e] text-[12px] font-mono break-all leading-relaxed mb-3">
+                  {paymentResult.boleto_identification_field}
+                </p>
+                <button
+                  onClick={onCopyBoleto}
+                  className={`w-full h-[44px] rounded-[10px] flex items-center justify-center gap-2 font-semibold text-[13px] transition-all
+                    ${boletoCopied ? 'bg-[#3ECF8E] text-[#121212]' : 'bg-[#2a2a2a] text-white hover:bg-[#333]'}`}
+                >
+                  {boletoCopied ? <Check size={16}/> : <Copy size={16}/>}
+                  {boletoCopied ? 'Copiado!' : 'Copiar linha digitável'}
+                </button>
+              </div>
+            )}
+
+            {paymentResult.boleto_url && (
+              <a
+                href={paymentResult.boleto_url} target="_blank" rel="noreferrer"
+                className="w-full h-[48px] rounded-[100px] border border-[#3c3c3c] flex items-center justify-center gap-2 text-white/70 hover:text-white hover:border-[#4a4a4a] transition-colors text-[14px] font-medium"
+              >
+                <ExternalLink size={16}/>Ver / imprimir boleto
+              </a>
+            )}
           </div>
-        </>
-      ) : (
-        <>
-          <div className="w-16 h-16 bg-[#3ECF8E]/10 rounded-full flex items-center justify-center">
-            <Loader2 size={32} className="text-[#3ECF8E] animate-spin"/>
+        )}
+
+        {/* CARTÃO */}
+        {billing_type === 'CREDIT_CARD' && (
+          <div className="flex flex-col items-center gap-5 py-6 text-center">
+            <CreditCard size={40} className="text-[#3ECF8E]" strokeWidth={1.5}/>
+            <div>
+              <h2 className="text-white font-semibold text-[18px] mb-2">Página de pagamento aberta</h2>
+              <p className="text-[#8e8e8e] text-[14px] max-w-sm">
+                Conclua o pagamento na nova aba. Sua inscrição será confirmada automaticamente.
+              </p>
+            </div>
+            {paymentResult.invoice_url && (
+              <a
+                href={paymentResult.invoice_url} target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-2 px-6 h-[48px] rounded-[100px] bg-[#3ECF8E]/10 border border-[#3ECF8E]/30 text-[#3ECF8E] font-semibold text-[14px] hover:bg-[#3ECF8E]/20 transition-colors"
+              >
+                <ExternalLink size={16}/>Abrir novamente
+              </a>
+            )}
           </div>
-          <div className="text-center">
-            <h2 className="text-white text-[20px] font-semibold mb-2">Redirecionando para o Stripe…</h2>
-            <p className="text-[#8e8e8e] text-[14px]">Você será enviado para o ambiente seguro de pagamento.</p>
+        )}
+
+        {pollStatus === 'expired' && (
+          <div className="mt-4 p-3 bg-[#e5534b]/10 border border-[#e5534b]/20 rounded-[10px]">
+            <p className="text-[#e5534b] text-[13px] text-center">O código expirou. Volte e gere um novo pagamento.</p>
           </div>
-        </>
+        )}
+      </Card>
+
+      {pollStatus !== 'paid' && (
+        <div className="mt-5 flex justify-start">
+          <Btn variant="ghost" onClick={onBack}><ArrowLeft size={16}/>Voltar</Btn>
+        </div>
       )}
     </div>
   );
@@ -1360,7 +1538,6 @@ export function CheckoutPage() {
   // ── URL params ──────────────────────────────────────────────────────────────
   const tournamentId  = params.get('tid') ?? '';
   const returnUrl     = params.get('return') ?? (import.meta.env.VITE_APP_URL as string) ?? '/';
-  const sessionId     = params.get('session_id');  // Stripe callback
   const isPartnerFlow = params.get('partnerFlow') === '1';
   const partnerRegId  = params.get('regId') ?? '';
 
@@ -1373,8 +1550,16 @@ export function CheckoutPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingInit, setLoadingInit] = useState(true);
   const [initError, setInitError]   = useState<string | null>(null);
-  const [paying, setPaying]         = useState(false);
-  const [payError, setPayError]     = useState<string | null>(null);
+  const [paying, setPaying]           = useState(false);
+  const [payError, setPayError]       = useState<string | null>(null);
+  const [paymentResult, setPaymentResult] = useState<AsaasPaymentResult | null>(null);
+  const [pollStatus, setPollStatus]   = useState<'waiting' | 'paid' | 'expired'>('waiting');
+  const [pixCopied, setPixCopied]     = useState(false);
+  const [boletoCopied, setBoletoCopied] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  useEffect(() => () => stopPolling(), []);
 
   const discountRate = (tournament?.discountPercent ?? 0) / 100;
 
@@ -1395,70 +1580,8 @@ export function CheckoutPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── On mount: check Stripe session_id callback first ──────────────────────
+  // ── On mount: inicializa checkout (sem callback Stripe) ──────────────────
   useEffect(() => {
-    if (sessionId) {
-      // Restore checkout data saved before Stripe redirect
-      try {
-        const saved = sessionStorage.getItem('deserty_checkout_data');
-        if (saved) {
-          setData(JSON.parse(saved));
-          sessionStorage.removeItem('deserty_checkout_data');
-        }
-        const savedTournament = sessionStorage.getItem('deserty_checkout_tournament');
-        if (savedTournament) {
-          setTournament(JSON.parse(savedTournament));
-          sessionStorage.removeItem('deserty_checkout_tournament');
-        }
-      } catch { /* ignore */ }
-
-      // Poll until webhook confirms payment_status = "paid" (max 30s)
-      // If webhook is slow, verify-session endpoint acts as fallback
-      setStep('payment-details');
-      setLoadingInit(false);
-
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      const anonKey    = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
-      let attempts = 0;
-      const maxAttempts = 15;
-      const interval = setInterval(async () => {
-        attempts++;
-        try {
-          const { data: reg } = await supabase
-            .from('registrations')
-            .select('id, payment_status')
-            .eq('stripe_session_id', sessionId)
-            .maybeSingle();
-
-          if (reg?.payment_status === 'paid') {
-            clearInterval(interval);
-            setStep('success');
-          } else if (attempts >= maxAttempts) {
-            clearInterval(interval);
-            // Webhook too slow — call verify-session to guarantee DB update
-            try {
-              await fetch(
-                `${supabaseUrl}/functions/v1/server/make-server-06b83993/stripe/verify-session`,
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${anonKey}`, 'apikey': anonKey },
-                  body: JSON.stringify({ session_id: sessionId }),
-                },
-              );
-            } catch { /* best-effort */ }
-            setStep('success');
-          }
-        } catch {
-          if (attempts >= maxAttempts) {
-            clearInterval(interval);
-            setStep('success');
-          }
-        }
-      }, 2000);
-
-      return () => clearInterval(interval);
-    }
     initCheckout();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1723,25 +1846,23 @@ export function CheckoutPage() {
     window.location.href = returnUrl;
   };
 
-  // ── Call Edge Function → redirect to Stripe ────────────────────────────────
+  // ── handlePay → chama Asaas, mostra tela de pagamento inline ────────────────
   const handlePay = async () => {
     if (!data.user || !tournament) return;
     setPaying(true);
     setPayError(null);
-    setStep('payment-details');
+    setPaymentResult(null);
+    setPollStatus('waiting');
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-      const checkoutUrl = (import.meta.env.VITE_CHECKOUT_URL as string) || window.location.origin;
-      const appUrl      = (import.meta.env.VITE_APP_URL as string) || returnUrl || window.location.origin;
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string);
 
-      // Build duo_partner list from the first category that has a partner
-      // (for multi-category split, all partners are included in registration ids)
       const firstPartner = Object.values(data.partners).find(Boolean);
+      const hasSplitDuo = data.selectedCategories.some(c => data.payOptions[c.id] === 'mine');
 
-      const body = {
-        tournament_id: tournament.id,
-        category_ids:  data.selectedCategories.map(c => c.id),
+      const commonBody = {
         payer: {
           player_id: data.user.id,
           full_name: data.billing.name || data.user.name,
@@ -1749,70 +1870,121 @@ export function CheckoutPage() {
           cpf:       data.billing.cpf,
           whatsapp:  data.billing.whatsapp,
         },
-        ...(firstPartner && data.selectedCategories.some(c => data.payOptions[c.id] === 'mine') ? {
-          duo_partner: {
-            player_id:  firstPartner.isPrecadastro ? undefined : firstPartner.id,
-            full_name:  firstPartner.name,
-            email:      firstPartner.precadastroEmail ?? '',
-            cpf:        firstPartner.precadastroCpf ?? '',
-            whatsapp:   firstPartner.precadastroPhone ?? '',
-          },
-          payer_covers_duo: false,
-        } : firstPartner ? {
-          duo_partner: {
-            player_id:  firstPartner.isPrecadastro ? undefined : firstPartner.id,
-            full_name:  firstPartner.name,
-            email:      firstPartner.precadastroEmail ?? '',
-            cpf:        firstPartner.precadastroCpf ?? '',
-            whatsapp:   firstPartner.precadastroPhone ?? '',
-          },
-          payer_covers_duo: true,
-        } : {}),
-        payment_method_hint: data.paymentMethod,
+        billing_type: data.paymentMethod ?? 'PIX',
         uniform_size: data.uniformSizes.payer ?? undefined,
         partner_uniform_size: data.uniformSizes.partner ?? undefined,
-        success_url: `${checkoutUrl || appUrl}/checkout?tid=${tournament.id}&return=${encodeURIComponent(returnUrl)}`,
-        cancel_url:  returnUrl,
       };
 
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+      let endpoint: string;
+      let body: object;
 
       if (isPartnerFlow && partnerRegId) {
-        (body as any).registration_id = partnerRegId;
+        endpoint = `${supabaseUrl}/functions/v1/server/make-server-06b83993/asaas/partner-payment`;
+        body = { ...commonBody, registration_id: partnerRegId };
+      } else {
+        endpoint = `${supabaseUrl}/functions/v1/server/make-server-06b83993/asaas/create-payment`;
+        body = {
+          ...commonBody,
+          tournament_id: tournament.id,
+          category_ids:  data.selectedCategories.map(c => c.id),
+          ...(firstPartner && hasSplitDuo ? {
+            duo_partner: {
+              player_id: firstPartner.isPrecadastro ? undefined : firstPartner.id,
+              full_name:  firstPartner.name,
+              email:      firstPartner.precadastroEmail ?? '',
+              cpf:        firstPartner.precadastroCpf ?? '',
+              whatsapp:   firstPartner.precadastroPhone ?? '',
+            },
+            payer_covers_duo: false,
+          } : firstPartner ? {
+            duo_partner: {
+              player_id: firstPartner.isPrecadastro ? undefined : firstPartner.id,
+              full_name:  firstPartner.name,
+              email:      firstPartner.precadastroEmail ?? '',
+              cpf:        firstPartner.precadastroCpf ?? '',
+              whatsapp:   firstPartner.precadastroPhone ?? '',
+            },
+            payer_covers_duo: true,
+          } : {}),
+        };
       }
 
-      const endpoint = isPartnerFlow
-        ? `${supabaseUrl}/functions/v1/server/make-server-06b83993/stripe/create-partner-checkout`
-        : `${supabaseUrl}/functions/v1/server/make-server-06b83993/stripe/create-checkout`;
-      const res = await fetch(
-        endpoint,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${anonKey}`,
-            'apikey': anonKey,
-          },
-          body: JSON.stringify(body),
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY as string,
         },
-      );
+        body: JSON.stringify(body),
+      });
 
-      const result = await res.json();
+      const result: AsaasPaymentResult & { error?: string } = await res.json();
 
       if (!res.ok) {
         setPayError(result.error ?? 'Erro ao processar pagamento.');
+        setStep('payment-details');
         return;
       }
 
-      // Save state before Stripe redirect so success screen has data
-      sessionStorage.setItem('deserty_checkout_data', JSON.stringify(data));
-      sessionStorage.setItem('deserty_checkout_tournament', JSON.stringify(tournament));
-      window.location.href = result.checkout_url;
+      setPaymentResult(result);
+      setStep('payment-details');
+
+      // Cartão: abre em nova aba (não precisa polling)
+      if (data.paymentMethod === 'CREDIT_CARD' && result.invoice_url) {
+        window.open(result.invoice_url, '_blank');
+      }
+
+      // Pix / Boleto: polling de confirmação a cada 5s
+      if (data.paymentMethod !== 'CREDIT_CARD' && result.registration_ids?.[0]) {
+        const regId = result.registration_ids[0];
+        stopPolling();
+        pollRef.current = setInterval(async () => {
+          try {
+            const checkRes = await fetch(
+              `${supabaseUrl}/functions/v1/server/make-server-06b83993/asaas/check-status`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,
+                  'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+                },
+                body: JSON.stringify({ registration_id: regId }),
+              },
+            );
+            const status = await checkRes.json();
+            if (status.payment_status === 'paid') {
+              setPollStatus('paid');
+              stopPolling();
+              setTimeout(() => setStep('success'), 1500);
+            } else if (status.payment_status === 'expired') {
+              setPollStatus('expired');
+              stopPolling();
+            }
+          } catch { /* silent */ }
+        }, 5000);
+      }
     } catch (err: any) {
       setPayError(err.message ?? 'Erro de conexão. Tente novamente.');
+      setStep('payment-details');
     } finally {
       setPaying(false);
     }
+  };
+
+  const handleCopyPix = async () => {
+    if (!paymentResult?.pix_code) return;
+    await navigator.clipboard.writeText(paymentResult.pix_code);
+    setPixCopied(true);
+    setTimeout(() => setPixCopied(false), 2000);
+  };
+
+  const handleCopyBoleto = async () => {
+    if (!paymentResult?.boleto_identification_field) return;
+    await navigator.clipboard.writeText(paymentResult.boleto_identification_field);
+    setBoletoCopied(true);
+    setTimeout(() => setBoletoCopied(false), 2000);
   };
 
   const stepProps = { data, onUpdate: update, onNext: goNext, onBack: goBack };
@@ -1900,7 +2072,18 @@ export function CheckoutPage() {
           {step === 'payment-method' && (
             <PaymentMethodStep {...stepProps} discountRate={discountRate} onPay={handlePay} paying={paying}/>
           )}
-          {step === 'payment-details' && <PaymentDetailsStep error={payError} confirming={!!sessionId}/>}
+          {step === 'payment-details' && (
+            <PaymentDetailsStep
+              error={payError}
+              paymentResult={paymentResult}
+              pollStatus={pollStatus}
+              onCopyPix={handleCopyPix}
+              onCopyBoleto={handleCopyBoleto}
+              pixCopied={pixCopied}
+              boletoCopied={boletoCopied}
+              onBack={() => { stopPolling(); setPaymentResult(null); setPollStatus('waiting'); setStep('payment-method'); }}
+            />
+          )}
           {step === 'success'         && (
             <SuccessStep data={data} returnUrl={returnUrl} tournamentId={tournamentId} discountRate={discountRate}/>
           )}
