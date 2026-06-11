@@ -1,11 +1,11 @@
 {
-  "name": "@figma/my-make-file",
+  "name": "deserty-pagamento",
   "private": true,
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "build": "vite build",
-    "dev": "vite"
+    "build": "node_modules/.bin/vite build",
+    "dev": "node_modules/.bin/vite"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
