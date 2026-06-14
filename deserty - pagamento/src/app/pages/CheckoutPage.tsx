@@ -171,6 +171,36 @@ const fmtPhone = (v: string) => {
   return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
 };
 
+// ─── Validators ───────────────────────────────────────────────────────────────
+const validateCPF = (cpf: string): boolean => {
+  const d = cpf.replace(/\D/g, '');
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += +d[i] * (10 - i);
+  let r = (sum * 10) % 11;
+  if (r === 10 || r === 11) r = 0;
+  if (r !== +d[9]) return false;
+  sum = 0;
+  for (let i = 0; i < 10; i++) sum += +d[i] * (11 - i);
+  r = (sum * 10) % 11;
+  if (r === 10 || r === 11) r = 0;
+  return r === +d[10];
+};
+
+const validateEmail = (email: string): boolean =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim());
+
+// Garante que returnUrl é do mesmo origin que VITE_APP_URL — evita open redirect
+const safeReturnUrl = (url: string): string => {
+  const appUrl = (import.meta.env.VITE_APP_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+  try {
+    const parsed = new URL(url);
+    const allowed = new URL(appUrl || window.location.origin);
+    if (parsed.origin === allowed.origin) return url;
+  } catch { /* URL relativa ou inválida */ }
+  return appUrl || '/';
+};
+
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 function Btn({ onClick, disabled, variant='primary', type='button', className='', children, fullWidth }: {
   onClick?: ()=>void; disabled?: boolean; variant?: 'primary'|'secondary'|'ghost';
@@ -384,7 +414,7 @@ function AuthStep({ onUpdate, onNext, onPartnerLogin, partnerMode }: {
 
   const submit = async () => {
     const e: Record<string,string> = {};
-    if (!email.includes('@'))   e.email = 'Email inválido';
+    if (!validateEmail(email))  e.email = 'Email inválido';
     if (password.length < 6)    e.password = 'Mínimo 6 caracteres';
     if (mode === 'register') {
       if (name.trim().length < 2) e.name = 'Nome obrigatório';
@@ -438,7 +468,7 @@ function AuthStep({ onUpdate, onNext, onPartnerLogin, partnerMode }: {
   const handleGoogle = async () => {
     // Save full URL (with partner params) before OAuth — Supabase drops query params on redirect.
     // The dedicated /oauth-callback route restores it after session is established.
-    localStorage.setItem('deserty_oauth_return', window.location.href);
+    sessionStorage.setItem('deserty_oauth_return', window.location.href);
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: window.location.origin + '/' },
@@ -780,9 +810,9 @@ function PartnerSearch({ category, catIdx, partner, onSelect, userName, discount
   }, [partner?.id]);
 
   const submitPre = () => {
-    if (!pre.name.trim() || !pre.email.trim() || pre.cpf.replace(/\D/g,'').length < 11) return;
+    if (!pre.name.trim() || !validateEmail(pre.email) || !validateCPF(pre.cpf)) return;
     onSelect({
-      id: `pre-${Date.now()}`,
+      id: `pre-${crypto.randomUUID()}`,
       nickname: pre.name.toLowerCase().replace(/\s+/g,'_'),
       name: pre.name.trim(),
       isPrecadastro: true,
@@ -793,7 +823,7 @@ function PartnerSearch({ category, catIdx, partner, onSelect, userName, discount
     setModal(false);
     setPre({ name:'', email:'', cpf:'', phone:'' });
   };
-  const preCanSubmit = pre.name.trim().length >= 2 && pre.email.includes('@') && pre.cpf.replace(/\D/g,'').length === 11;
+  const preCanSubmit = pre.name.trim().length >= 2 && validateEmail(pre.email) && validateCPF(pre.cpf);
 
   return (
     <div className="border border-[#2a2a2a] rounded-[12px] p-4 bg-[#171717]">
@@ -1109,8 +1139,8 @@ function BillingStep({ data, onUpdate, onNext, onBack, discountRate }: {
   const validate = () => {
     const e: Record<string,string> = {};
     if (!data.billing.name.trim())                       e.name  = 'Nome obrigatório';
-    if (data.billing.cpf.replace(/\D/g,'').length < 11) e.cpf   = 'CPF inválido';
-    if (!data.billing.email.includes('@'))               e.email = 'Email inválido';
+    if (!validateCPF(data.billing.cpf))                  e.cpf   = 'CPF inválido';
+    if (!validateEmail(data.billing.email))              e.email = 'Email inválido';
     setErrs(e);
     return !Object.keys(e).length;
   };
@@ -1537,7 +1567,7 @@ export function CheckoutPage() {
 
   // ── URL params ──────────────────────────────────────────────────────────────
   const tournamentId  = params.get('tid') ?? '';
-  const returnUrl     = params.get('return') ?? (import.meta.env.VITE_APP_URL as string) ?? '/';
+  const returnUrl     = safeReturnUrl(params.get('return') ?? (import.meta.env.VITE_APP_URL as string) ?? '/');
   const isPartnerFlow = params.get('partnerFlow') === '1';
   const partnerRegId  = params.get('regId') ?? '';
 
@@ -1587,30 +1617,16 @@ export function CheckoutPage() {
   }, []);
 
   const loadPartnerRegData = async (regId: string, userId: string) => {
-    console.log('[Partner] loadPartnerRegData start — regId:', regId, 'userId:', userId);
     try {
-      let { data: reg } = await supabase
+      const { data: reg } = await supabase
         .from('registrations')
         .select('id, tournament_id, uniform_size, duo_id, payment_status')
         .eq('id', regId)
         .eq('player_id', userId)
         .maybeSingle();
 
-      console.log('[Partner] reg result (with player_id):', reg);
-
       if (!reg) {
-        // Fallback: try without player_id filter (RLS may use different policy)
-        const { data: regFallback, error: fallbackError } = await supabase
-          .from('registrations')
-          .select('id, tournament_id, uniform_size, duo_id, payment_status')
-          .eq('id', regId)
-          .maybeSingle();
-        console.log('[Partner] fallback reg:', regFallback, 'error:', fallbackError);
-        reg = regFallback;
-      }
-
-      if (!reg) {
-        setInitError(`Inscrição não encontrada (regId: ${regId.slice(0,8)}…). Verifique se está logado com a conta correta.`);
+        setInitError('Inscrição não encontrada. Verifique se está logado com a conta correta.');
         setLoadingInit(false);
         return;
       }
@@ -1697,11 +1713,11 @@ export function CheckoutPage() {
       // Supabase OAuth (implicit flow) drops query params and redirects to the root URL.
       // The SDK processes the hash tokens synchronously on load, so session is available here.
       // Restore the original partner URL from localStorage if present.
-      const savedUrl = localStorage.getItem('deserty_oauth_return');
+      const savedUrl = sessionStorage.getItem('deserty_oauth_return');
       if (savedUrl) {
         const { data: { session: s } } = await supabase.auth.getSession();
         if (s?.user) {
-          localStorage.removeItem('deserty_oauth_return');
+          sessionStorage.removeItem('deserty_oauth_return');
           window.location.replace(savedUrl);
           return;
         }
@@ -1715,11 +1731,9 @@ export function CheckoutPage() {
       // ── 1. Restore Supabase session ──────────────────────────────────────────
       const accessToken  = params.get('access_token');
       const refreshToken = params.get('refresh_token');
-      console.log('[Checkout] tokens from URL:', { hasAccess: !!accessToken, hasRefresh: !!refreshToken });
 
       if (accessToken && refreshToken) {
-        const { error: sessErr } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
-        console.log('[Checkout] setSession result:', { sessErr });
+        await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
         // Remove tokens from URL
         const clean = new URL(window.location.href);
         clean.searchParams.delete('access_token');
@@ -1728,7 +1742,6 @@ export function CheckoutPage() {
       }
 
       const { data: { session } } = await supabase.auth.getSession();
-      console.log('[Checkout] session after restore:', { hasSession: !!session, userId: session?.user?.id });
 
       if (session?.user) {
         const { data: profile } = await supabase
@@ -1771,7 +1784,6 @@ export function CheckoutPage() {
       ]);
 
       if (tErr || !t) {
-        console.error('[Checkout] tournament fetch error:', tErr, 'tid:', tournamentId);
         setInitError('Torneio não encontrado.');
         setLoadingInit(false);
         return;
@@ -1849,6 +1861,19 @@ export function CheckoutPage() {
   // ── handlePay → chama Asaas, mostra tela de pagamento inline ────────────────
   const handlePay = async () => {
     if (!data.user || !tournament) return;
+    // Captura snapshot imutável do estado antes de qualquer await — evita race condition
+    // se o usuário alterar categorias ou parceiro durante o processamento
+    const snapshot = {
+      user:               data.user,
+      selectedCategories: [...data.selectedCategories],
+      partners:           { ...data.partners },
+      billing:            { ...data.billing },
+      payOptions:         { ...data.payOptions },
+      paymentMethod:      data.paymentMethod,
+      uniformSizes:       { ...data.uniformSizes },
+    };
+    const tournamentSnapshot = { ...tournament };
+
     setPaying(true);
     setPayError(null);
     setPaymentResult(null);
@@ -1859,34 +1884,37 @@ export function CheckoutPage() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string);
 
-      const firstPartner = Object.values(data.partners).find(Boolean);
-      const hasSplitDuo = data.selectedCategories.some(c => data.payOptions[c.id] === 'mine');
+      const firstPartner = Object.values(snapshot.partners).find(Boolean);
+      const hasSplitDuo = snapshot.selectedCategories.some(c => snapshot.payOptions[c.id] === 'mine');
 
       const commonBody = {
         payer: {
-          player_id: data.user.id,
-          full_name: data.billing.name || data.user.name,
-          email:     data.billing.email || data.user.email,
-          cpf:       data.billing.cpf,
-          whatsapp:  data.billing.whatsapp,
+          player_id: snapshot.user.id,
+          full_name: snapshot.billing.name || snapshot.user.name,
+          email:     snapshot.billing.email || snapshot.user.email,
+          cpf:       snapshot.billing.cpf,
+          whatsapp:  snapshot.billing.whatsapp,
         },
-        billing_type: data.paymentMethod ?? 'PIX',
-        uniform_size: data.uniformSizes.payer ?? undefined,
-        partner_uniform_size: data.uniformSizes.partner ?? undefined,
+        billing_type: snapshot.paymentMethod ?? 'PIX',
+        uniform_size: snapshot.uniformSizes.payer ?? undefined,
+        partner_uniform_size: snapshot.uniformSizes.partner ?? undefined,
       };
+
+      const edgeFnBase = (import.meta.env.VITE_EDGE_FN_BASE as string | undefined)
+        ?? `${supabaseUrl}/functions/v1/server/make-server-06b83993`;
 
       let endpoint: string;
       let body: object;
 
       if (isPartnerFlow && partnerRegId) {
-        endpoint = `${supabaseUrl}/functions/v1/server/make-server-06b83993/asaas/partner-payment`;
+        endpoint = `${edgeFnBase}/asaas/partner-payment`;
         body = { ...commonBody, registration_id: partnerRegId };
       } else {
-        endpoint = `${supabaseUrl}/functions/v1/server/make-server-06b83993/asaas/create-payment`;
+        endpoint = `${edgeFnBase}/asaas/create-payment`;
         body = {
           ...commonBody,
-          tournament_id: tournament.id,
-          category_ids:  data.selectedCategories.map(c => c.id),
+          tournament_id: tournamentSnapshot.id,
+          category_ids:  snapshot.selectedCategories.map(c => c.id),
           ...(firstPartner && hasSplitDuo ? {
             duo_partner: {
               player_id: firstPartner.isPrecadastro ? undefined : firstPartner.id,
@@ -1931,18 +1959,26 @@ export function CheckoutPage() {
       setStep('payment-details');
 
       // Cartão: abre em nova aba (não precisa polling)
-      if (data.paymentMethod === 'CREDIT_CARD' && result.invoice_url) {
+      if (snapshot.paymentMethod === 'CREDIT_CARD' && result.invoice_url) {
         window.open(result.invoice_url, '_blank');
       }
 
       // Pix / Boleto: polling de confirmação a cada 5s
-      if (data.paymentMethod !== 'CREDIT_CARD' && result.registration_ids?.[0]) {
+      if (snapshot.paymentMethod !== 'CREDIT_CARD' && result.registration_ids?.[0]) {
         const regId = result.registration_ids[0];
         stopPolling();
+        let pollAttempts = 0;
+        const MAX_POLL_ATTEMPTS = 72; // 72 × 5s = 6 minutos
         pollRef.current = setInterval(async () => {
+          pollAttempts++;
+          if (pollAttempts > MAX_POLL_ATTEMPTS) {
+            stopPolling();
+            setPayError('Tempo de espera esgotado. Verifique o status da inscrição no app ou entre em contato com o suporte.');
+            return;
+          }
           try {
             const checkRes = await fetch(
-              `${supabaseUrl}/functions/v1/server/make-server-06b83993/asaas/check-status`,
+              `${edgeFnBase}/asaas/check-status`,
               {
                 method: 'POST',
                 headers: {
@@ -1953,6 +1989,7 @@ export function CheckoutPage() {
                 body: JSON.stringify({ registration_id: regId }),
               },
             );
+            if (!checkRes.ok) return; // Rede ok mas servidor com erro — tenta novamente
             const status = await checkRes.json();
             if (status.payment_status === 'paid') {
               setPollStatus('paid');
@@ -1962,7 +1999,9 @@ export function CheckoutPage() {
               setPollStatus('expired');
               stopPolling();
             }
-          } catch { /* silent */ }
+          } catch {
+            // Erro de rede — continua tentando até MAX_POLL_ATTEMPTS
+          }
         }, 5000);
       }
     } catch (err: any) {
