@@ -1989,7 +1989,11 @@ export function CheckoutPage() {
                 body: JSON.stringify({ registration_id: regId }),
               },
             );
-            if (!checkRes.ok) return; // Rede ok mas servidor com erro — tenta novamente
+            if (!checkRes.ok) {
+              const errBody = await checkRes.json().catch(() => ({}));
+              console.error('[poll check-status]', checkRes.status, errBody);
+              return; // tenta novamente no próximo tick
+            }
             const status = await checkRes.json();
             if (status.payment_status === 'paid') {
               setPollStatus('paid');
