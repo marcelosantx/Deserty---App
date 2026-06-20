@@ -1591,6 +1591,16 @@ export function CheckoutPage() {
   const stopPolling = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
   useEffect(() => () => stopPolling(), []);
 
+  // Atualiza o título da aba do browser conforme torneio e categorias selecionadas
+  useEffect(() => {
+    if (!tournament) return;
+    const cats = data.selectedCategories.map(c => c.name).join(", ");
+    document.title = cats
+      ? `Deserty — ${tournament.name} · ${cats}`
+      : `Deserty — ${tournament.name}`;
+    return () => { document.title = "Deserty"; };
+  }, [tournament, data.selectedCategories]);
+
   const discountRate = (tournament?.discountPercent ?? 0) / 100;
 
   const update = (u: Partial<CheckoutData>) => setData(p => ({ ...p, ...u }));
