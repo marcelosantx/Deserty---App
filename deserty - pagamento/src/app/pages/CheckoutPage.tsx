@@ -992,48 +992,6 @@ function PartnerStep({ data, onUpdate, onNext, onBack, discountRate }: {
 }
 
 // ─── STEP 4: Review ───────────────────────────────────────────────────────────
-function PaySplitBlock({ cat, catIdx, partner, discountRate }: {
-  cat: Category; catIdx: number; partner: Partner | null; discountRate: number;
-}) {
-  const myPrice   = myAthletePrice(catIdx, cat.pricePerAthlete, discountRate);
-  const pPrice    = partnerAthletePrice(cat.pricePerAthlete);
-  const pairTotal = myPrice + pPrice;
-
-  return (
-    <div className="border border-[#252525] rounded-[10px] p-4 bg-[#171717] mt-3">
-      <div className="flex items-center gap-2 mb-3">
-        <p className="text-white text-[13px] font-semibold">{cat.name}</p>
-        <span className="text-[10px] bg-[#2a2a2a] text-[#8e8e8e] px-1.5 py-0.5 rounded-full">{cat.gender}</span>
-        {catIdx > 0 && discountRate > 0 && (
-          <span className="text-[10px] bg-[#3ECF8E]/20 text-[#3ECF8E] px-1.5 py-0.5 rounded-full font-semibold">
-            −{Math.round(discountRate*100)}% (você)
-          </span>
-        )}
-      </div>
-      <div className="flex items-center justify-between text-[12px]">
-        <div className="flex items-center gap-2">
-          <img src={imgSynergy} className="w-5 h-5 rounded-full object-cover" alt=""/>
-          <span className="text-[#8e8e8e]">Você</span>
-          <span className="text-white font-semibold">{fmt(myPrice)}</span>
-        </div>
-        {partner && (
-          <div className="flex items-center gap-2">
-            {partner.avatar
-              ? <img src={partner.avatar} className="w-5 h-5 rounded-full object-cover" alt=""/>
-              : <div className="w-5 h-5 rounded-full bg-[#2f2f2f] flex items-center justify-center"><Users size={9} className="text-[#8e8e8e]"/></div>}
-            <span className="text-[#8e8e8e] truncate max-w-[100px]">{partner.name}</span>
-            <span className="text-white font-semibold">{fmt(pPrice)}</span>
-          </div>
-        )}
-      </div>
-      <div className="mt-3 flex items-center justify-between border-t border-[#2a2a2a] pt-3">
-        <span className="text-[#8e8e8e] text-[12px]">Total da dupla</span>
-        <span className="text-[#3ECF8E] font-semibold text-[14px]">{fmt(partner ? pairTotal : myPrice)}</span>
-      </div>
-    </div>
-  );
-}
-
 function ReviewStep({ data, onUpdate, onNext, onBack, onGoTo, discountRate }: {
   data: CheckoutData; onUpdate: (u: Partial<CheckoutData>) => void;
   onNext: () => void; onBack: () => void; onGoTo: (s: CheckoutStep) => void; discountRate: number;
@@ -1044,68 +1002,92 @@ function ReviewStep({ data, onUpdate, onNext, onBack, onGoTo, discountRate }: {
     <>
       <Card>
         <StepHeading title="Revise sua inscrição"
-          subtitle="Confira os dados e escolha a divisão de pagamento por categoria"/>
-        <div className="border border-[#2a2a2a] rounded-[10px] p-4 mb-3">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-[11px] text-[#4a4a4a] uppercase tracking-wider">Atleta</span>
-            <button onClick={() => onGoTo('auth')} className="text-[#3ECF8E] text-[12px] flex items-center gap-1 hover:underline">
+          subtitle="Confira os dados antes de prosseguir"/>
+
+        {/* ── Atleta ── */}
+        <div className="border border-[#2a2a2a] rounded-[12px] overflow-hidden mb-3">
+          <div className="flex items-center justify-between px-4 py-2.5 bg-[#1a1a1a]">
+            <span className="text-[11px] text-[#4a4a4a] uppercase tracking-wider font-medium">Atleta</span>
+            <button onClick={() => onGoTo('auth')} className="text-[#3ECF8E] text-[12px] flex items-center gap-1 active:opacity-60">
               <Edit2 size={11}/>Editar
             </button>
           </div>
-          <div className="flex items-center gap-3">
-            <img src={imgSynergy} className="w-10 h-10 rounded-full object-cover" alt=""/>
-            <div>
-              <p className="text-white font-medium">{data.user?.name}</p>
-              <p className="text-[#8e8e8e] text-[13px]">{data.user?.email}</p>
+          <div className="flex items-center gap-3 px-4 py-3">
+            <img src={imgSynergy} className="w-9 h-9 rounded-full object-cover shrink-0" alt=""/>
+            <div className="min-w-0">
+              <p className="text-white text-[14px] font-medium truncate">{data.user?.name}</p>
+              <p className="text-[#4a4a4a] text-[12px] truncate">{data.user?.email}</p>
             </div>
           </div>
         </div>
+
+        {/* ── Categorias ── */}
         {pricing.lines.map(({ cat, idx, myPrice, isDiscounted }) => {
-          const partner = data.partners[cat.id];
+          const partner   = data.partners[cat.id];
+          const pPrice    = partnerAthletePrice(cat.pricePerAthlete);
+          const pairTotal = myPrice + (partner ? pPrice : 0);
+
           return (
-            <div key={cat.id} className="border border-[#2a2a2a] rounded-[10px] p-4 mb-3">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-white font-semibold">{cat.name}</span>
-                  <span className="text-[11px] bg-[#2a2a2a] text-[#8e8e8e] px-2 py-0.5 rounded-full">{cat.gender}</span>
-                  {isDiscounted && discountRate > 0 && (
-                    <span className="text-[10px] bg-[#3ECF8E]/20 text-[#3ECF8E] px-1.5 py-0.5 rounded-full font-semibold">
-                      −{Math.round(discountRate*100)}% (você)
-                    </span>
-                  )}
-                </div>
-                <span className="text-[#3ECF8E] font-semibold text-[13px]">{fmt(myPrice)}/você</span>
-              </div>
-              <div className="flex flex-col gap-2 mb-1">
-                <div className="flex items-center gap-2">
-                  <img src={imgSynergy} className="w-6 h-6 rounded-full object-cover" alt=""/>
-                  <span className="text-[13px] text-white">{data.user?.name}</span>
-                </div>
-                {partner && (
-                  <div className="flex items-center gap-2">
-                    {partner.avatar
-                      ? <img src={partner.avatar} className="w-6 h-6 rounded-full object-cover" alt=""/>
-                      : <div className="w-6 h-6 rounded-full bg-[#2f2f2f] flex items-center justify-center"><Users size={10} className="text-[#8e8e8e]"/></div>}
-                    <span className="text-[13px] text-white">{partner.name}</span>
-                    <span className="text-[11px] text-[#4a4a4a]">@{partner.nickname}</span>
-                    <button onClick={() => onGoTo('partners')} className="ml-auto text-[#3ECF8E] hover:opacity-70"><Edit2 size={12}/></button>
-                  </div>
+            <div key={cat.id} className="border border-[#2a2a2a] rounded-[12px] overflow-hidden mb-3">
+
+              {/* Cabeçalho da categoria */}
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-[#1a1a1a] border-b border-[#2a2a2a]">
+                <span className="text-white text-[13px] font-semibold truncate flex-1 min-w-0">{cat.name}</span>
+                <span className="text-[11px] bg-[#252525] text-[#6e6e6e] px-2 py-0.5 rounded-full shrink-0">{cat.gender}</span>
+                {isDiscounted && discountRate > 0 && (
+                  <span className="text-[10px] bg-[#3ECF8E]/15 text-[#3ECF8E] px-2 py-0.5 rounded-full font-semibold shrink-0">
+                    −{Math.round(discountRate*100)}%
+                  </span>
                 )}
               </div>
-              <PaySplitBlock cat={cat} catIdx={idx} partner={partner ?? null} discountRate={discountRate}/>
+
+              {/* Tabela de jogadores + valores */}
+              <div className="divide-y divide-[#1e1e1e]">
+                {/* Linha: Você */}
+                <div className="flex items-center gap-3 px-4 py-3">
+                  <img src={imgSynergy} className="w-7 h-7 rounded-full object-cover shrink-0" alt=""/>
+                  <span className="text-[13px] text-white truncate flex-1 min-w-0">{data.user?.name}</span>
+                  <span className="text-[#3ECF8E] text-[13px] font-semibold shrink-0">{fmt(myPrice)}</span>
+                </div>
+
+                {/* Linha: Parceiro */}
+                {partner && (
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    {partner.avatar
+                      ? <img src={partner.avatar} className="w-7 h-7 rounded-full object-cover shrink-0" alt=""/>
+                      : <div className="w-7 h-7 rounded-full bg-[#252525] flex items-center justify-center shrink-0"><Users size={10} className="text-[#5a5a5a]"/></div>}
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[13px] text-white truncate block">{partner.name}</span>
+                      {partner.nickname && <span className="text-[11px] text-[#4a4a4a]">@{partner.nickname}</span>}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[13px] text-[#8e8e8e] font-medium">{fmt(pPrice)}</span>
+                      <button onClick={() => onGoTo('partners')} className="text-[#3ECF8E] active:opacity-60"><Edit2 size={12}/></button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Linha: Total */}
+                <div className="flex items-center justify-between px-4 py-3 bg-[#151515]">
+                  <span className="text-[12px] text-[#5a5a5a]">{partner ? 'Total da dupla' : 'Subtotal'}</span>
+                  <span className="text-[#3ECF8E] text-[14px] font-semibold">{fmt(pairTotal)}</span>
+                </div>
+              </div>
             </div>
           );
         })}
-        <div className="px-4 py-3 bg-[#171717] rounded-[10px] border border-[#2a2a2a] flex items-center justify-between">
+
+        {/* ── Total geral ── */}
+        <div className="flex items-center justify-between px-4 py-4 bg-[#171717] rounded-[12px] border border-[#2a2a2a]">
           <div>
-            <p className="text-[#8e8e8e] text-[13px]">Total que você pagará</p>
+            <p className="text-white text-[14px] font-semibold">Total que você pagará</p>
             {pricing.partnerTotalOwed > 0 && (
               <p className="text-[11px] text-amber-400 mt-0.5">
-                + {fmt(pricing.partnerTotalOwed)} cobrado(s) das duplas individualmente
+                + {fmt(pricing.partnerTotalOwed)} cobrado às duplas
               </p>
             )}
           </div>
-          <span className="text-[#3ECF8E] font-semibold text-[18px]">{fmt(pricing.userBaseTotal)}</span>
+          <span className="text-[#3ECF8E] font-bold text-[20px]">{fmt(pricing.userBaseTotal)}</span>
         </div>
       </Card>
       <Nav onBack={onBack} onNext={onNext} nextLabel="Confirmar e prosseguir"/>
