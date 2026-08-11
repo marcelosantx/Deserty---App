@@ -1939,10 +1939,18 @@ export function CheckoutPage() {
         body: JSON.stringify(body),
       });
 
-      const result: AsaasPaymentResult & { error?: string } = await res.json();
+      const result: AsaasPaymentResult & { error?: string; retryAfterSeconds?: number } = await res.json();
 
       if (!res.ok) {
-        setPayError(result.error ?? 'Erro ao processar pagamento.');
+        if (res.status === 503) {
+          const wait = result.retryAfterSeconds ?? 30;
+          setPayError(
+            `O serviço de pagamento está temporariamente indisponível. ` +
+            `Tente novamente em ${wait} segundo${wait !== 1 ? 's' : ''}.`
+          );
+        } else {
+          setPayError(result.error ?? 'Erro ao processar pagamento.');
+        }
         setStep('payment-details');
         return;
       }
