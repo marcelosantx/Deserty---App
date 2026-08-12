@@ -1,15 +1,19 @@
 import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { safeReturnUrl } from '@/lib/safeRedirect';
 
 export function OAuthCallbackPage() {
   useEffect(() => {
     // Wait for Supabase to process OAuth tokens, then restore the saved partner URL.
     // We always redirect to savedUrl if present — the CheckoutPage handles session detection.
+    //
+    // A URL é gravada em sessionStorage por CheckoutPage.handleGoogle.
+    // safeReturnUrl barra destinos fora da nossa origem.
     supabase.auth.getSession().then(() => {
-      const savedUrl = localStorage.getItem('deserty_oauth_return');
-      localStorage.removeItem('deserty_oauth_return');
-      window.location.replace(savedUrl ?? '/');
+      const savedUrl = sessionStorage.getItem('deserty_oauth_return');
+      sessionStorage.removeItem('deserty_oauth_return');
+      window.location.replace(safeReturnUrl(savedUrl));
     });
   }, []);
 
