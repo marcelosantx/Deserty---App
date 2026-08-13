@@ -1,14 +1,18 @@
 /**
- * Valida uma URL de retorno antes de redirecionar.
+ * Valida uma URL antes de redirecionar, aceitando SOMENTE a própria origem.
  *
- * O fluxo OAuth guarda a URL atual (com query params de parceiro) para restaurá-la
- * após o login. Redirecionar para esse valor sem conferir a origem permitiria enviar
- * o usuário a um domínio externo — página falsa logo após um login legítimo.
+ * Use no retorno do OAuth: o fluxo guarda `window.location.href` (a própria
+ * origem do checkout) para restaurar a URL com os params de parceiro depois do
+ * login. Redirecionar para esse valor sem conferir a origem permitiria enviar o
+ * usuário a um domínio externo — página falsa logo após um login legítimo.
  *
- * Aceita apenas URLs da própria origem e caminhos relativos.
- * Qualquer outra coisa cai no fallback.
+ * NÃO use para o retorno pós-pagamento ao app principal: aquele destino é outra
+ * origem (app.deserty.com.br) e é validado por `safeReturnUrl`, em CheckoutPage,
+ * que compara contra VITE_APP_URL. São checagens distintas de propósito.
+ *
+ * Aceita URLs da própria origem e caminhos relativos; o resto cai no fallback.
  */
-export function safeReturnUrl(raw: string | null | undefined, fallback = "/"): string {
+export function safeSameOriginUrl(raw: string | null | undefined, fallback = "/"): string {
   if (!raw) return fallback;
 
   try {

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { safeReturnUrl } from '@/lib/safeRedirect';
+import { safeSameOriginUrl } from '@/lib/safeRedirect';
 
 export function OAuthCallbackPage() {
   useEffect(() => {
@@ -13,7 +13,7 @@ export function OAuthCallbackPage() {
     supabase.auth.getSession().then(() => {
       const savedUrl = sessionStorage.getItem('deserty_oauth_return');
       sessionStorage.removeItem('deserty_oauth_return');
-      window.location.replace(safeReturnUrl(savedUrl));
+      window.location.replace(safeSameOriginUrl(savedUrl));
     });
   }, []);
 

@@ -7,7 +7,7 @@ import {
   FileText, Zap, ExternalLink,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { safeReturnUrl } from '@/lib/safeRedirect';
+import { safeSameOriginUrl } from '@/lib/safeRedirect';
 
 // ─── Figma assets (event banner fallback) ────────────────────────────────────
 import imgBanner    from 'figma:asset/e105b5e610ed3a80a379fd20d3b62ba8ac6e74be.png';
@@ -1711,8 +1711,9 @@ export function CheckoutPage() {
         const { data: { session: s } } = await supabase.auth.getSession();
         if (s?.user) {
           sessionStorage.removeItem('deserty_oauth_return');
-          // safeReturnUrl barra destinos fora da nossa origem
-          window.location.replace(safeReturnUrl(savedUrl));
+          // Retorno do OAuth: a URL salva é da própria origem do checkout.
+          // safeSameOriginUrl barra destinos fora dela.
+          window.location.replace(safeSameOriginUrl(savedUrl));
           return;
         }
       }
