@@ -525,7 +525,7 @@ function AuthStep({ onUpdate, onNext, onPartnerLogin, partnerMode }: {
         )}
         {partnerMode && (
           <InfoBox color="amber">
-            Use seu email e senha para acessar. Caso só tenha conta Google, defina uma senha em deserty.com.br/conta.
+            Use seu email e senha para acessar. Caso só tenha conta Google, defina uma senha em app.deserty.com.br/conta.
           </InfoBox>
         )}
       </div>
