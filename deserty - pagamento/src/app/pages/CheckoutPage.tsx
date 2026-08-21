@@ -117,6 +117,63 @@ const INITIAL_DATA: CheckoutData = {
 };
 const SERVICE_FEE_RATE = 0.03;
 
+// ─── Progresso salvo ──────────────────────────────────────────────────────────
+// Sete etapas até o pagamento; um refresh sem querer ou um pulo até o app do
+// banco apagava tudo. Guarda o preenchido em sessionStorage (morre ao fechar a
+// aba, então não fica dado de pagamento parado no aparelho por dias).
+//
+// Categorias vão só como IDs — preço e vagas são re-lidos do servidor ao
+// restaurar, senão a tela poderia mostrar um valor antigo enquanto a cobrança
+// sai pelo valor atual.
+interface SavedProgress {
+  selectedCategoryIds: string[];
+  partners: CheckoutData['partners'];
+  billing: CheckoutData['billing'];
+  payOptions: CheckoutData['payOptions'];
+  uniformSizes: CheckoutData['uniformSizes'];
+  savedAt: number;
+}
+
+const PROGRESS_TTL_MS = 12 * 60 * 60 * 1000; // 12h
+const progressKey = (tid: string) => `deserty_checkout_${tid}`;
+
+function saveProgress(tid: string, d: CheckoutData) {
+  if (!tid) return;
+  try {
+    const payload: SavedProgress = {
+      selectedCategoryIds: d.selectedCategories.map(c => c.id),
+      partners: d.partners,
+      billing: d.billing,
+      payOptions: d.payOptions,
+      uniformSizes: d.uniformSizes,
+      savedAt: Date.now(),
+    };
+    sessionStorage.setItem(progressKey(tid), JSON.stringify(payload));
+  } catch {
+    // Aba anônima com storage bloqueado, cota estourada: seguir sem salvar.
+  }
+}
+
+function loadProgress(tid: string): SavedProgress | null {
+  if (!tid) return null;
+  try {
+    const raw = sessionStorage.getItem(progressKey(tid));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SavedProgress;
+    if (!parsed?.savedAt || Date.now() - parsed.savedAt > PROGRESS_TTL_MS) {
+      sessionStorage.removeItem(progressKey(tid));
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearProgress(tid: string) {
+  try { sessionStorage.removeItem(progressKey(tid)); } catch { /* ignore */ }
+}
+
 // ─── Pricing ──────────────────────────────────────────────────────────────────
 const myAthletePrice = (catIdx: number, price: number, discountRate: number) =>
   catIdx === 0 ? price : price * (1 - discountRate);
@@ -221,9 +278,13 @@ function Btn({ onClick, disabled, variant='primary', type='button', className=''
   );
 }
 
-function Field({ label, value, onChange, placeholder, type='text', error, suffix, disabled, autoFocus }: {
+function Field({ label, value, onChange, placeholder, type='text', error, suffix, disabled, autoFocus, inputMode, autoComplete, maxLength }: {
   label?: string; value: string; onChange: (v:string)=>void; placeholder?: string;
   type?: string; error?: string; suffix?: React.ReactNode; disabled?: boolean; autoFocus?: boolean;
+  // Sem inputMode, campo de CPF/telefone abre teclado alfabético no celular —
+  // 11 dígitos procurados numa tela de letras. autoComplete deixa o navegador
+  // e o gerenciador de senhas preencherem nome/e-mail/telefone sozinhos.
+  inputMode?: 'text' | 'numeric' | 'tel' | 'email'; autoComplete?: string; maxLength?: number;
 }) {
   return (
     <div className="flex flex-col gap-1.5 w-full">
@@ -232,6 +293,7 @@ function Field({ label, value, onChange, placeholder, type='text', error, suffix
         ${error?'border-[#e5534b]':'border-[#3c3c3c] focus-within:border-[#3ECF8E]'} ${disabled?'opacity-50':''}`}>
         <input type={type} value={value} onChange={e=>onChange(e.target.value)}
           placeholder={placeholder} disabled={disabled} autoFocus={autoFocus}
+          inputMode={inputMode} autoComplete={autoComplete} maxLength={maxLength}
           className="flex-1 bg-transparent text-white text-[14px] outline-none placeholder-[#4a4a4a] min-w-0"/>
         {suffix && <div className="shrink-0">{suffix}</div>}
       </div>
@@ -623,8 +685,18 @@ function CategoryStep({ data, onUpdate, onNext, onBack, categories, discountRate
                     <span className="text-[#8e8e8e] text-[12px]">{fmt(cat.pricePerAthlete)}</span>
                   </div>
                 </div>
+                {/* Antes: text-[10px] em #3a3a3a — cinza escuro sobre fundo
+                    escuro, praticamente ilegível. Vagas restantes é o
+                    argumento de urgência mais forte da tela; quando sobram
+                    poucas, ganha destaque em âmbar. */}
                 {!sold && cat.total > 0 && cat.spotsLeft < 999 && (
-                  <p className="text-[10px] text-[#3a3a3a] mt-2">{cat.spotsLeft}/{cat.total} vagas</p>
+                  <p className={`text-[11px] mt-2 font-medium ${
+                    cat.spotsLeft <= 5 ? 'text-[#e0a33a]' : 'text-[#8e8e8e]'
+                  }`}>
+                    {cat.spotsLeft <= 5
+                      ? `Últimas ${cat.spotsLeft} vagas`
+                      : `${cat.spotsLeft} de ${cat.total} vagas disponíveis`}
+                  </p>
                 )}
               </button>
             );
@@ -935,9 +1007,12 @@ function PartnerSearch({ category, catIdx, partner, onSelect, userName, discount
             </p>
             <div className="flex flex-col gap-3">
               <Field label="Nome completo *" value={pre.name} onChange={v=>setPre(p=>({...p,name:v}))} placeholder="Nome da dupla"/>
-              <Field label="E-mail *" type="email" value={pre.email} onChange={v=>setPre(p=>({...p,email:v}))} placeholder="email@dupla.com"/>
-              <Field label="CPF *" value={pre.cpf} onChange={v=>setPre(p=>({...p,cpf:fmtCPF(v)}))} placeholder="000.000.000-00"/>
-              <Field label="WhatsApp" value={pre.phone} onChange={v=>setPre(p=>({...p,phone:fmtPhone(v)}))} placeholder="(xx) xxxxx-xxxx"/>
+              <Field label="E-mail *" type="email" value={pre.email} onChange={v=>setPre(p=>({...p,email:v}))} placeholder="email@dupla.com"
+                inputMode="email"/>
+              <Field label="CPF *" value={pre.cpf} onChange={v=>setPre(p=>({...p,cpf:fmtCPF(v)}))} placeholder="000.000.000-00"
+                inputMode="numeric" maxLength={14}/>
+              <Field label="WhatsApp" value={pre.phone} onChange={v=>setPre(p=>({...p,phone:fmtPhone(v)}))} placeholder="(xx) xxxxx-xxxx"
+                inputMode="tel" maxLength={15}/>
             </div>
             <p className="text-[11px] text-[#3a3a3a] mt-2">* campos obrigatórios</p>
             <div className="flex gap-3 mt-4">
@@ -1105,14 +1180,41 @@ function BillingStep({ data, onUpdate, onNext, onBack, discountRate }: {
   const pricing = computePricing(data, discountRate);
 
   useEffect(() => {
-    if (data.user) {
+    if (!data.user) return;
+
+    // Nome e e-mail vêm da sessão; CPF e WhatsApp moram em profiles e não
+    // podem ser lidos direto da tabela (restringimos as colunas sensíveis).
+    // get_own_sensitive_profile() devolve só a própria linha de quem chama.
+    let cancelled = false;
+
+    (async () => {
+      let cpf = data.billing.cpf;
+      let whatsapp = data.billing.whatsapp;
+
+      if (!cpf || !whatsapp) {
+        try {
+          const { data: own } = await supabase.rpc('get_own_sensitive_profile');
+          const row = Array.isArray(own) ? own[0] : own;
+          if (row) {
+            cpf      = cpf      || (row.cpf      ? fmtCPF(row.cpf)        : '');
+            whatsapp = whatsapp || (row.whatsapp ? fmtPhone(row.whatsapp) : '');
+          }
+        } catch {
+          // Perfil sem CPF salvo ou RPC indisponível: segue com campo vazio,
+          // que é o comportamento anterior. Nunca bloqueia o checkout.
+        }
+      }
+
+      if (cancelled) return;
       onUpdate({ billing: {
-        name:     data.billing.name  || data.user.name,
-        email:    data.billing.email || data.user.email,
-        cpf:      data.billing.cpf,
-        whatsapp: data.billing.whatsapp,
+        name:     data.billing.name  || data.user!.name,
+        email:    data.billing.email || data.user!.email,
+        cpf,
+        whatsapp,
       }});
-    }
+    })();
+
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1135,16 +1237,20 @@ function BillingStep({ data, onUpdate, onNext, onBack, discountRate }: {
         <div className="flex flex-col gap-4 mb-6">
           <Field label="Nome completo" value={data.billing.name}
             onChange={v=>{upB('name',v);setErrs(e=>({...e,name:''}))}}
-            placeholder="Seu nome completo" error={errs.name}/>
+            placeholder="Seu nome completo" error={errs.name}
+            autoComplete="name"/>
           <Field label="CPF" value={data.billing.cpf}
             onChange={v=>{upB('cpf',fmtCPF(v));setErrs(e=>({...e,cpf:''}))}}
-            placeholder="000.000.000-00" error={errs.cpf}/>
+            placeholder="000.000.000-00" error={errs.cpf}
+            inputMode="numeric" maxLength={14}/>
           <Field label="E-mail para comprovante" type="email" value={data.billing.email}
             onChange={v=>{upB('email',v);setErrs(e=>({...e,email:''}))}}
-            placeholder="seu@email.com" error={errs.email}/>
+            placeholder="seu@email.com" error={errs.email}
+            inputMode="email" autoComplete="email"/>
           <Field label="WhatsApp" value={data.billing.whatsapp}
             onChange={v=>upB('whatsapp',fmtPhone(v))}
-            placeholder="(11) 99999-0000"/>
+            placeholder="(11) 99999-0000"
+            inputMode="tel" autoComplete="tel" maxLength={15}/>
         </div>
 
         {/* Order Summary */}
@@ -1273,6 +1379,7 @@ function PaymentDetailsStep({
   error,
   paymentResult,
   pollStatus,
+  pollTimedOut,
   onCopyPix,
   onCopyBoleto,
   pixCopied,
@@ -1282,6 +1389,7 @@ function PaymentDetailsStep({
   error: string | null;
   paymentResult: AsaasPaymentResult | null;
   pollStatus: 'waiting' | 'paid' | 'expired';
+  pollTimedOut: boolean;
   onCopyPix: () => void;
   onCopyBoleto: () => void;
   pixCopied: boolean;
@@ -1449,6 +1557,21 @@ function PaymentDetailsStep({
             <p className="text-[#e5534b] text-[13px] text-center">O código expirou. Volte e gere um novo pagamento.</p>
           </div>
         )}
+
+        {/* Parou de acompanhar ao vivo, mas o código continua valendo — o
+            webhook do Asaas confirma sozinho quando o pagamento cair. */}
+        {pollTimedOut && pollStatus === 'waiting' && (
+          <div className="mt-4 p-3 bg-[#3ECF8E]/[0.07] border border-[#3ECF8E]/20 rounded-[10px]">
+            <p className="text-[#3ECF8E] text-[13px] text-center font-medium mb-1">
+              Seu código continua válido
+            </p>
+            <p className="text-[#8e8e8e] text-[12px] text-center leading-relaxed">
+              Paramos de verificar automaticamente, mas você ainda pode pagar
+              normalmente{billing_type === 'PIX' ? ' (o Pix vence em 24 horas)' : ''}.
+              Assim que o pagamento cair, a confirmação chega no seu e-mail.
+            </p>
+          </div>
+        )}
       </Card>
 
       {pollStatus !== 'paid' && (
@@ -1567,6 +1690,9 @@ export function CheckoutPage() {
   const [payError, setPayError]       = useState<string | null>(null);
   const [paymentResult, setPaymentResult] = useState<AsaasPaymentResult | null>(null);
   const [pollStatus, setPollStatus]   = useState<'waiting' | 'paid' | 'expired'>('waiting');
+  // Acompanhamento ao vivo desistiu, mas a cobrança segue válida — estado
+  // separado de 'expired', que é a cobrança realmente vencida no Asaas.
+  const [pollTimedOut, setPollTimedOut] = useState(false);
   const [pixCopied, setPixCopied]     = useState(false);
   const [boletoCopied, setBoletoCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1587,6 +1713,13 @@ export function CheckoutPage() {
   const discountRate = (tournament?.discountPercent ?? 0) / 100;
 
   const update = (u: Partial<CheckoutData>) => setData(p => ({ ...p, ...u }));
+
+  // Salva o progresso a cada mudança, exceto no fluxo de parceiro (que já
+  // chega com tudo definido pelo link) e depois de concluído.
+  useEffect(() => {
+    if (isPartnerFlow || loadingInit || step === 'success') return;
+    saveProgress(tournamentId, data);
+  }, [data, step, isPartnerFlow, loadingInit, tournamentId]);
 
   // ── Partner flow: detect Google OAuth sign-in via onAuthStateChange ──────────
   // initCheckout relies on getSession() timing which can miss the PKCE exchange.
@@ -1823,6 +1956,28 @@ export function CheckoutPage() {
         const preSel = mapped.filter(c => preIds.includes(c.id));
         if (preSel.length > 0) update({ selectedCategories: preSel });
       }
+
+      // ── 5. Restaura progresso de uma sessão interrompida ────────────────────
+      // Re-hidrata as categorias a partir de `mapped` (recém-carregado) em vez
+      // de usar o que estava salvo: preço e vagas podem ter mudado desde então,
+      // e mostrar valor velho na tela enquanto o servidor cobra o atual seria
+      // pior do que não restaurar nada.
+      if (!isPartnerFlow) {
+        const saved = loadProgress(tournamentId);
+        if (saved) {
+          const revividas = (saved.selectedCategoryIds ?? [])
+            .map(id => mapped.find(c => c.id === id))
+            .filter((c): c is Category => !!c && c.spotsLeft > 0);
+
+          update({
+            selectedCategories: revividas,
+            partners:  saved.partners  ?? {},
+            billing:   saved.billing   ?? INITIAL_DATA.billing,
+            payOptions: saved.payOptions ?? {},
+            uniformSizes: saved.uniformSizes ?? INITIAL_DATA.uniformSizes,
+          });
+        }
+      }
     } catch (err: any) {
       setInitError(err.message ?? 'Erro ao carregar torneio.');
     } finally {
@@ -1975,8 +2130,12 @@ export function CheckoutPage() {
         pollRef.current = setInterval(async () => {
           pollAttempts++;
           if (pollAttempts > MAX_POLL_ATTEMPTS) {
+            // Só o acompanhamento ao vivo termina — a cobrança em si continua
+            // válida (Pix vence em 1 dia, boleto em 3). A mensagem anterior
+            // mandava falar com o suporte, o que assustava quem só demorou
+            // mais que 6 min no app do banco e ainda ia pagar normalmente.
             stopPolling();
-            setPayError('Tempo de espera esgotado. Verifique o status da inscrição no app ou entre em contato com o suporte.');
+            setPollTimedOut(true);
             return;
           }
           try {
@@ -2001,6 +2160,7 @@ export function CheckoutPage() {
             if (status.payment_status === 'paid') {
               setPollStatus('paid');
               stopPolling();
+              clearProgress(tournamentId);  // pago: não faz sentido restaurar
               setTimeout(() => setStep('success'), 1500);
             } else if (status.payment_status === 'expired') {
               setPollStatus('expired');
@@ -2123,11 +2283,12 @@ export function CheckoutPage() {
               error={payError}
               paymentResult={paymentResult}
               pollStatus={pollStatus}
+              pollTimedOut={pollTimedOut}
               onCopyPix={handleCopyPix}
               onCopyBoleto={handleCopyBoleto}
               pixCopied={pixCopied}
               boletoCopied={boletoCopied}
-              onBack={() => { stopPolling(); setPaymentResult(null); setPollStatus('waiting'); setStep('payment-method'); }}
+              onBack={() => { stopPolling(); setPaymentResult(null); setPollStatus('waiting'); setPollTimedOut(false); setStep('payment-method'); }}
             />
           )}
           {step === 'success'         && (
